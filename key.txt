@@ -1,3 +1,2 @@
-34AFA83F4F1577DA | key | 1 | m
-34AFA83F4F1577DE | sai | 1 | m
-F4AFA83F4F1577DE | saikey | 1 | m
+UnknownID | 34AFA83F4F1577DA | 0 | d
+UnknownID | 34AFA83F4F1577DE | 0 | d
