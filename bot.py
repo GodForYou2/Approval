@@ -26,7 +26,7 @@ GITHUB_TOKEN = os.getenv("GH_TOKEN") if os.getenv("GH_TOKEN") else "ghp_1ue8DpFF
 REPO_OWNER = "GodForYou2" 
 REPO_NAME = "Approval" 
 FILE_PATH = "key.txt" 
-RESELLER_FILE_PATH = "resellers.txt"  # Reseller သိမ်းရန် ဖိုင်လမ်းကြောင်းသစ်
+RESELLER_FILE_PATH = "resellers.txt" 
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
@@ -66,7 +66,7 @@ def pull_data_from_github():
         else: print(f"[-] Keys Pull Failed: Status {res_k.status_code}")
     except Exception as e: print(f"[-] Keys Pull Exception: {str(e)}")
 
-    # 2. Pull Resellers Data (ဒေတာမပျောက်စေရန် ဤနေရာမှ ပြန်ဆွဲသွင်းပါသည်)
+    # 2. Pull Resellers Data (ဖတ်ရလွယ်ကူအောင် ကုဒ်ကို ပိုမို စိတ်ချရစွာ ပြင်ဆင်ထားသည်)
     try:
         url_resellers = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{RESELLER_FILE_PATH}"
         res_r = requests.get(url_resellers, headers=headers)
@@ -78,9 +78,10 @@ def pull_data_from_github():
                 cursor = conn.cursor()
                 cursor.execute("DELETE FROM users WHERE role = 'reseller'")
                 for line in file_content.split("\n"):
-                    if " | " in line:
+                    line = line.strip()
+                    if "|" in line:
                         parts = [p.strip() for p in line.split("|")]
-                        if len(parts) == 2:
+                        if len(parts) == 2 and parts[0].isdigit(): # Telegram ID စစ်စစ်ဖြစ်မှ သွင်းမည်
                             cursor.execute("INSERT OR REPLACE INTO users (tg_id, username, role) VALUES (?, ?, 'reseller')", (int(parts[0]), parts[1]))
                 conn.commit()
                 conn.close()
@@ -123,7 +124,6 @@ def init_db():
         except: pass
     conn.close()
 
-# Database ကို စတင်ဆောက်လုပ်ပြီးတာနဲ့ GitHub မှ ဒေတာအားလုံးကို အော်တိုဆွဲယူခိုင်းမည်
 init_db()
 pull_data_from_github()
 
@@ -162,7 +162,6 @@ def sync_db_to_github():
         return False
 
 def sync_resellers_to_github():
-    """Reseller စာရင်းများကို GitHub သို့ Sync လုပ်ပြီး အော်တိုလှမ်းသိမ်းပေးမည့် ဖန်ရှင်သစ်"""
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
@@ -239,10 +238,7 @@ MENU_BUTTONS = ["➕ Add Key", "🔑 My Keys", "✏️ Edit Key", "🗑 Delete K
 def cmd_start(message):
     user_id = message.from_user.id
     user_states[user_id] = None 
-    
-    # ဆာဗာပြန်ပွင့်ချိန် start နှိပ်ရင်လည်း ဒေတာပြန်ဆွဲပေးရန်
     pull_data_from_github()
-    
     if not is_reseller(user_id):
         bot.reply_to(message, "🚫 သင်သည် စနစ်သုံးခွင့်မရှိသေးပါ။ Admin ထံ ခွင့်ပြုချက်တောင်းပါ။")
         return
@@ -284,8 +280,6 @@ def process_reseller_name(message):
         conn.close()
         
         bot.reply_to(message, f"✅ **အောင်မြင်ပါသည်!**\n👤 နာမည်: `{reseller_name}`\n🆔 ID: `{reseller_id}` အား Reseller ခန့်အပ်ပြီးပါပြီ။ Cloud သို့ အော်တိုသိမ်းဆည်းနေပါသည်...", parse_mode="Markdown")
-        
-        # Reseller အသစ်ကို GitHub ပေါ်က resellers.txt ထဲသို့ ချက်ချင်းလှမ်းသိမ်းခိုင်းခြင်း
         sync_resellers_to_github()
         
     except Exception as e:
@@ -298,9 +292,7 @@ def process_reseller_name(message):
 @bot.message_handler(func=lambda msg: msg.text == "📊 Reseller List" and is_admin(msg.from_user.id))
 def admin_view_resellers(message):
     user_states[message.from_user.id] = None
-    
-    # စာရင်းမပြမီ ဒေတာဗလာဖြစ်နေခြင်းမှ ကာကွယ်ရန် GitHub ထံမှ အမြဲအော်တို ဆွဲယူခိုင်းခြင်း
-    pull_data_from_github()
+    pull_data_from_github() # အမြဲနောက်ဆုံးအခြေအနေကို ဆွဲယူဖတ်ခိုင်းသည်
     
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -328,7 +320,7 @@ def admin_delete_reseller_menu(message):
     markup = types.InlineKeyboardMarkup(row_width=1)
     for r in rows:
         markup.add(types.InlineKeyboardButton(text=f"❌ {r[1]} (ID: {r[0]})", callback_data=f"del_reseller_{r[0]}"))
-    bot.send_message(message.chat.id, "🗑 **#ဖျက်ထုတ်လိုသော Reseller နာမည်အား နှိပ်ပါ-**", reply_markup=markup, parse_mode="Markdown")
+    bot.send_message(message.chat.id, "🗑 **ဖျက်ထုတ်လိုသော Reseller နာမည်အား နှိပ်ပါ-**", reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("del_reseller_"))
 def callback_delete_reseller(call):
@@ -344,7 +336,6 @@ def callback_delete_reseller(call):
         conn.commit()
         conn.close()
         
-        # ဒေတာဘေ့စ်မှ ဖျက်ပြီးနောက် GitHub ပေါ်ကစာရင်းကိုပါ Cloud မှာ အော်တို Update လုပ်ခိုင်းခြင်း
         sync_resellers_to_github()
         
         bot.answer_callback_query(call.id, f"✅ {r_name} အား ဖြုတ်ချပြီးပါပြီ။")
