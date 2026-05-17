@@ -51,7 +51,6 @@ def pull_data_from_github():
             if content_b64:
                 file_content_keys = base64.b64decode(content_b64).decode("utf-8")
         else:
-            # API ကျဆုံးပါက Public Raw Link မှ တိုက်ရိုက်ဆွဲယူမည်
             raw_url_keys = f"https://raw.githubusercontent.com/{REPO_OWNER}/{REPO_NAME}/main/{FILE_PATH}"
             res_raw_k = requests.get(raw_url_keys)
             if res_raw_k.status_code == 200:
@@ -74,7 +73,7 @@ def pull_data_from_github():
             print("[+] Success: Keys data restored.")
     except Exception as e: print(f"[-] Keys Pull Exception: {str(e)}")
 
-    # 2. Pull Resellers Data (API ရော Public Link ပါ ၂ လမ်းကြောင်းလုံးဖြင့် အသေအချာဖတ်မည့်စနစ်)
+    # 2. Pull Resellers Data (Space Error များကို လုံးဝကျော်ဖြတ်ပြီး ဖတ်မည့် အဆင့်မြင့်စနစ်)
     try:
         file_content_resellers = None
         url_resellers = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{RESELLER_FILE_PATH}"
@@ -85,7 +84,6 @@ def pull_data_from_github():
             if content_b64:
                 file_content_resellers = base64.b64decode(content_b64).decode("utf-8")
         else:
-            # API Error ဖြစ်ပါက Token မလိုသော Public Raw URL စနစ်ဖြင့် ဒေတာကို ကုတ်ဆွဲမည်
             raw_url_resellers = f"https://raw.githubusercontent.com/{REPO_OWNER}/{REPO_NAME}/main/{RESELLER_FILE_PATH}"
             res_raw_r = requests.get(raw_url_resellers)
             if res_raw_r.status_code == 200:
@@ -95,24 +93,36 @@ def pull_data_from_github():
             conn = sqlite3.connect(DB_FILE)
             cursor = conn.cursor()
             
-            # Main Admin ကို ချန်ပြီး ကျန်တာအကုန်ရှင်းထုတ်သည်
+            # Main Admin မှလွဲ၍ ကျန်တာအကုန်ရှင်းထုတ်သည်
             cursor.execute("DELETE FROM users WHERE tg_id != ?", (ADMIN_ID,))
             
-            for line in file_content_resellers.split("\n"):
+            lines = file_content_resellers.split("\n")
+            inserted_count = 0
+            
+            for line in lines:
                 line = line.strip()
+                if not line: continue
+                
                 if "|" in line:
+                    # Space များကို ကြိုတင်ဖယ်ထုတ်ပြီးမှ အပိုင်းခွဲသည်
                     parts = [p.strip() for p in line.split("|") if p.strip()]
                     if len(parts) == 2:
-                        clean_id = parts[0].replace(" ", "")
+                        clean_id = parts[0].replace(" ", "") # Space အားလုံးကို ဖျက်ပစ်သည်
                         if clean_id.isdigit():
                             target_tg_id = int(clean_id)
                             user_role = 'admin' if target_tg_id == ADMIN_ID else 'reseller'
                             cursor.execute("INSERT OR REPLACE INTO users (tg_id, username, role) VALUES (?, ?, ?)", (target_tg_id, parts[1], user_role))
+                            inserted_count += 1
+                        else:
+                            print(f"[-] Line Skipped (ID Not Digit): {line}")
+                    else:
+                        print(f"[-] Line Skipped (Invalid Format): {line}")
+            
             conn.commit()
             conn.close()
-            print("[+] Success: Resellers database re-populated from GitHub.")
+            print(f"[+] Success: Resellers database updated. Inserted {inserted_count} users.")
         else:
-            print("[-] Error: Could not fetch resellers data from GitHub API or Public Raw Link.")
+            print("[-] Error: Could not fetch resellers data from GitHub.")
     except Exception as e: print(f"[-] Resellers Pull Exception: {str(e)}")
 
 # --- Database Setup ---
