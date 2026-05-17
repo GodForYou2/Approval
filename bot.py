@@ -318,17 +318,15 @@ def process_reseller_name(message):
     user_states[admin_id] = None
     if admin_id in reseller_temp_data: del reseller_temp_data[admin_id]
 
-# 2. Reseller List (No Reply လုံးဝမဖြစ်စေရန် အထူးပြုပြင်ထားသော စနစ်)
+# 2. Reseller List (Special Character Error များကို ကျော်လွှားရန် HTML စနစ်သို့ ပြောင်းလဲထားသည်)
 @bot.message_handler(func=lambda msg: msg.text == "📊 Reseller List")
 def admin_view_resellers(message):
     user_id = message.from_user.id
     user_states[user_id] = None
     
-    # ခလုတ်နှိပ်သူသည် Admin ဟုတ်မဟုတ် အရင်စစ်မည်
     if not is_admin(user_id):
         return bot.reply_to(message, "🚫 သင်သည် Admin မဟုတ်သဖြင့် ဤစာရင်းအား ကြည့်ရှုခွင့် မရှိပါ။")
         
-    # GitHub ကနေ ဒေတာ အရင်ဆွဲယူမည်
     pull_data_from_github()
     
     try:
@@ -341,12 +339,15 @@ def admin_view_resellers(message):
         if not rows: 
             return bot.reply_to(message, "📭 Database ထဲတွင် အသုံးပြုသူစာရင်း လုံးဝမရှိသေးပါ။")
         
-        res = f"👥 **အသုံးပြုသူ စာရင်းစုစုပေါင်း:** {len(rows)} ဦး\n\n"
+        # HTML formatting သုံးပြီး Telegram စာသားပုံစံ ပြင်ဆင်သည်
+        res = f"👥 <b>အသုံးပြုသူ စာရင်းစုစုပေါင်း:</b> {len(rows)} ဦး\n\n"
         for r in rows:
             role_tag = "👑 Admin" if r[2] == 'admin' else "👤 Reseller"
-            res += f"• **{r[1]}** (ID: `{r[0]}`) - [{role_tag}]\n"
+            # နာမည်ထဲတွင် 特殊符号များ ပါခဲ့ပါက ကာကွယ်ရန် HTML escape အနည်းငယ် သုံးသည်
+            clean_name = str(r[1]).replace("<", "&lt;").replace(">", "&gt;")
+            res += f"• <b>{clean_name}</b> (ID: {r[0]}) - [{role_tag}]\n"
             
-        bot.reply_to(message, res, parse_mode="Markdown")
+        bot.reply_to(message, res, parse_mode="HTML")
     except Exception as e:
         bot.reply_to(message, f"❌ စာရင်းထုတ်ရာတွင် Error တစ်ခု တက်သွားပါသည်: {str(e)}")
 
@@ -366,7 +367,7 @@ def admin_delete_reseller_menu(message):
     markup = types.InlineKeyboardMarkup(row_width=1)
     for r in rows:
         markup.add(types.InlineKeyboardButton(text=f"❌ {r[1]} (ID: {r[0]})", callback_data=f"del_reseller_{r[0]}"))
-    bot.send_message(message.chat.id, "🗑 **<br>ဖျက်ထုတ်လိုသော Reseller နာမည်အား နှိပ်ပါ-**", reply_markup=markup, parse_mode="Markdown")
+    bot.send_message(message.chat.id, "🗑 **ဖျက်ထုတ်လိုသော Reseller နာမည်အား နှိပ်ပါ-**", reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("del_reseller_"))
 def callback_delete_reseller(call):
