@@ -1,3 +1,4 @@
+import os
 import sqlite3
 import telebot
 import requests
@@ -21,7 +22,7 @@ def run_web_server():
 BOT_TOKEN = "8855766112:AAFrm_h0BnN8ADOruSFasB0HKUOUum09N_4"
 ADMIN_ID = 8701781484
 
-GITHUB_TOKEN = "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" 
+GITHUB_TOKEN = os.getenv("GH_TOKEN")
 REPO_OWNER = "GodForYou2" 
 REPO_NAME = "Approval" 
 FILE_PATH = "key.txt" 
