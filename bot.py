@@ -15,7 +15,6 @@ def home():
     return "Bot is running 24/7 without sleeping!"
 
 def run_web_server():
-    # Render သည် Free Port များကို အလိုအလျောက် ပေးလေ့ရှိသည် (Port 10000 သို့မဟုတ် အော်တို ဖတ်ခိုင်းခြင်း)
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
@@ -23,59 +22,71 @@ def run_web_server():
 BOT_TOKEN = "8855766112:AAFrm_h0BnN8ADOruSFasB0HKUOUum09N_4"
 ADMIN_ID = 8701781484
 
-# Render Environment Variable သို့မဟုတ် ဒိုက်ရိုက် Token (အစ်ကို့ မူရင်းအတိုင်း ဖတ်ခိုင်းခြင်း)
 GITHUB_TOKEN = os.getenv("GH_TOKEN") if os.getenv("GH_TOKEN") else "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"
 REPO_OWNER = "GodForYou2" 
 REPO_NAME = "Approval" 
 FILE_PATH = "key.txt" 
+RESELLER_FILE_PATH = "resellers.txt"  # Reseller သိမ်းရန် ဖိုင်လမ်းကြောင်းသစ်
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Render ပေါ်တွင် Database လမ်းကြောင်း တိကျစေရန် သတ်မှတ်ခြင်း
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "keys_management.db")
 
-# --- GitHub မှ ဒေတာများကို လှမ်းယူပြီး Local DB ထဲသို့ ပြန်ထည့်ပေးမည့် (Auto-Restore) စနစ်သစ် ---
+# --- GitHub မှ Key ရော Reseller ပါ ဒေတာပြန်ဆွဲယူမည့် (Auto-Restore) စနစ် ---
 def pull_data_from_github():
     if not GITHUB_TOKEN:
         print("[-] Pull Error: GITHUB_TOKEN is not set!")
-        return False
+        return
         
-    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
     headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
     
+    # 1. Pull Keys Data
     try:
-        res = requests.get(url, headers=headers)
-        if res.status_code == 200:
-            content_b64 = res.json().get("content", "")
+        url_keys = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
+        res_k = requests.get(url_keys, headers=headers)
+        if res_k.status_code == 200:
+            content_b64 = res_k.json().get("content", "")
             if content_b64:
                 file_content = base64.b64decode(content_b64).decode("utf-8")
-                
                 conn = sqlite3.connect(DB_FILE)
                 cursor = conn.cursor()
-                
-                # ဆာဗာပြန်ပွင့်လာလျှင် မူရင်း auth_keys DB ထဲက ဒေတာအဟောင်းများကို အရင်ရှင်းမည်
                 cursor.execute("DELETE FROM auth_keys")
-                
                 for line in file_content.split("\n"):
                     if " | " in line:
                         parts = [p.strip() for p in line.split("|")]
                         if len(parts) == 4:
-                            # မူရင်း Format (target_id, key_string, unit_val, duration_type) အတိုင်း ပြန်ဖြည့်ခြင်း
                             cursor.execute("""
-                                INSERT OR IGNORE INTO auth_keys 
-                                (target_id, key_string, unit_val, duration_type, added_by) 
+                                INSERT OR IGNORE INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by) 
                                 VALUES (?, ?, ?, ?, ?)
                             """, (parts[0], parts[1], parts[2], parts[3], ADMIN_ID))
                 conn.commit()
                 conn.close()
-                print("[+] Success: GitHub Data pulled and restored to Local DB.")
-                return True
-        else:
-            print(f"[-] Pull Failed: Status {res.status_code}")
-    except Exception as e:
-        print(f"[-] Pull Exception: {str(e)}")
-    return False
+                print("[+] Success: Keys data restored.")
+        else: print(f"[-] Keys Pull Failed: Status {res_k.status_code}")
+    except Exception as e: print(f"[-] Keys Pull Exception: {str(e)}")
+
+    # 2. Pull Resellers Data (ဒေတာမပျောက်စေရန် ဤနေရာမှ ပြန်ဆွဲသွင်းပါသည်)
+    try:
+        url_resellers = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{RESELLER_FILE_PATH}"
+        res_r = requests.get(url_resellers, headers=headers)
+        if res_r.status_code == 200:
+            content_b64 = res_r.json().get("content", "")
+            if content_b64:
+                file_content = base64.b64decode(content_b64).decode("utf-8")
+                conn = sqlite3.connect(DB_FILE)
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM users WHERE role = 'reseller'")
+                for line in file_content.split("\n"):
+                    if " | " in line:
+                        parts = [p.strip() for p in line.split("|")]
+                        if len(parts) == 2:
+                            cursor.execute("INSERT OR REPLACE INTO users (tg_id, username, role) VALUES (?, ?, 'reseller')", (int(parts[0]), parts[1]))
+                conn.commit()
+                conn.close()
+                print("[+] Success: Resellers data restored.")
+        else: print(f"[-] Resellers Pull Failed: Status {res_r.status_code}")
+    except Exception as e: print(f"[-] Resellers Pull Exception: {str(e)}")
 
 # --- Database Setup ---
 def init_db():
@@ -112,11 +123,11 @@ def init_db():
         except: pass
     conn.close()
 
-# Database ကို အစပျိုးပြီး GitHub မှ ဒေတာများကို အော်တို လှမ်းယူခိုင်းမည် (Auto-Restore)
+# Database ကို စတင်ဆောက်လုပ်ပြီးတာနဲ့ GitHub မှ ဒေတာအားလုံးကို အော်တိုဆွဲယူခိုင်းမည်
 init_db()
 pull_data_from_github()
 
-# --- GitHub Auto Sync Function ---
+# --- GitHub Auto Sync Functions ---
 def sync_db_to_github():
     try:
         conn = sqlite3.connect(DB_FILE)
@@ -134,23 +145,50 @@ def sync_db_to_github():
             content_lines.append(f"{tid} | {kstr} | {uval} | {dtype}")
             
         file_content = "\n".join(content_lines)
-
         url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
         headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
         
         res = requests.get(url, headers=headers)
         sha = res.json().get('sha') if res.status_code == 200 else None
-
         payload = {
-            "message": "Bot Auto Sync Keys (Format: ID | Key | Unit | Duration)",
+            "message": "Bot Auto Sync Keys",
             "content": base64.b64encode(file_content.encode('utf-8')).decode('utf-8')
         }
         if sha: payload["sha"] = sha
-
-        put_res = requests.put(url, headers=headers, json=payload)
-        return put_res.status_code in [200, 201]
+        requests.put(url, headers=headers, json=payload)
+        return True
     except Exception as e:
-        print(f"[-] Sync Error: {str(e)}")
+        print(f"[-] Keys Sync Error: {str(e)}")
+        return False
+
+def sync_resellers_to_github():
+    """Reseller စာရင်းများကို GitHub သို့ Sync လုပ်ပြီး အော်တိုလှမ်းသိမ်းပေးမည့် ဖန်ရှင်သစ်"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("SELECT tg_id, username FROM users WHERE role = 'reseller'")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        content_lines = []
+        for row in rows:
+            content_lines.append(f"{row[0]} | {row[1]}")
+            
+        file_content = "\n".join(content_lines)
+        url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{RESELLER_FILE_PATH}"
+        headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+        
+        res = requests.get(url, headers=headers)
+        sha = res.json().get('sha') if res.status_code == 200 else None
+        payload = {
+            "message": "Bot Auto Sync Resellers List",
+            "content": base64.b64encode(file_content.encode('utf-8')).decode('utf-8')
+        }
+        if sha: payload["sha"] = sha
+        requests.put(url, headers=headers, json=payload)
+        return True
+    except Exception as e:
+        print(f"[-] Resellers Sync Error: {str(e)}")
         return False
 
 # --- Roles & Permissions Checks ---
@@ -201,6 +239,10 @@ MENU_BUTTONS = ["➕ Add Key", "🔑 My Keys", "✏️ Edit Key", "🗑 Delete K
 def cmd_start(message):
     user_id = message.from_user.id
     user_states[user_id] = None 
+    
+    # ဆာဗာပြန်ပွင့်ချိန် start နှိပ်ရင်လည်း ဒေတာပြန်ဆွဲပေးရန်
+    pull_data_from_github()
+    
     if not is_reseller(user_id):
         bot.reply_to(message, "🚫 သင်သည် စနစ်သုံးခွင့်မရှိသေးပါ။ Admin ထံ ခွင့်ပြုချက်တောင်းပါ။")
         return
@@ -240,7 +282,12 @@ def process_reseller_name(message):
         cursor.execute("INSERT OR REPLACE INTO users (tg_id, username, role) VALUES (?, ?, ?)", (reseller_id, reseller_name, 'reseller'))
         conn.commit()
         conn.close()
-        bot.reply_to(message, f"✅ **အောင်မြင်ပါသည်!**\n👤 နာမည်: `{reseller_name}`\n🆔 ID: `{reseller_id}` အား Reseller ခန့်အပ်ပြီးပါပြီ။", parse_mode="Markdown")
+        
+        bot.reply_to(message, f"✅ **အောင်မြင်ပါသည်!**\n👤 နာမည်: `{reseller_name}`\n🆔 ID: `{reseller_id}` အား Reseller ခန့်အပ်ပြီးပါပြီ။ Cloud သို့ အော်တိုသိမ်းဆည်းနေပါသည်...", parse_mode="Markdown")
+        
+        # Reseller အသစ်ကို GitHub ပေါ်က resellers.txt ထဲသို့ ချက်ချင်းလှမ်းသိမ်းခိုင်းခြင်း
+        sync_resellers_to_github()
+        
     except Exception as e:
         bot.reply_to(message, f"❌ သိမ်းဆည်းရာတွင် အမှားအယွင်းရှိခဲ့သည်- {str(e)}")
     
@@ -251,6 +298,10 @@ def process_reseller_name(message):
 @bot.message_handler(func=lambda msg: msg.text == "📊 Reseller List" and is_admin(msg.from_user.id))
 def admin_view_resellers(message):
     user_states[message.from_user.id] = None
+    
+    # စာရင်းမပြမီ ဒေတာဗလာဖြစ်နေခြင်းမှ ကာကွယ်ရန် GitHub ထံမှ အမြဲအော်တို ဆွဲယူခိုင်းခြင်း
+    pull_data_from_github()
+    
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("SELECT tg_id, username FROM users WHERE role = 'reseller'")
@@ -265,6 +316,8 @@ def admin_view_resellers(message):
 @bot.message_handler(func=lambda msg: msg.text == "🗑 Delete Reseller" and is_admin(msg.from_user.id))
 def admin_delete_reseller_menu(message):
     user_states[message.from_user.id] = None
+    pull_data_from_github()
+    
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("SELECT tg_id, username FROM users WHERE role = 'reseller'")
@@ -275,7 +328,7 @@ def admin_delete_reseller_menu(message):
     markup = types.InlineKeyboardMarkup(row_width=1)
     for r in rows:
         markup.add(types.InlineKeyboardButton(text=f"❌ {r[1]} (ID: {r[0]})", callback_data=f"del_reseller_{r[0]}"))
-    bot.send_message(message.chat.id, "🗑 **ဖျက်ထုတ်လိုသော Reseller နာမည်အား နှိပ်ပါ-**", reply_markup=markup, parse_mode="Markdown")
+    bot.send_message(message.chat.id, "🗑 **#ဖျက်ထုတ်လိုသော Reseller နာမည်အား နှိပ်ပါ-**", reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("del_reseller_"))
 def callback_delete_reseller(call):
@@ -290,6 +343,10 @@ def callback_delete_reseller(call):
         cursor.execute("DELETE FROM users WHERE tg_id = ?", (reseller_id,))
         conn.commit()
         conn.close()
+        
+        # ဒေတာဘေ့စ်မှ ဖျက်ပြီးနောက် GitHub ပေါ်ကစာရင်းကိုပါ Cloud မှာ အော်တို Update လုပ်ခိုင်းခြင်း
+        sync_resellers_to_github()
+        
         bot.answer_callback_query(call.id, f"✅ {r_name} အား ဖြုတ်ချပြီးပါပြီ။")
         bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, 
                               text=f"🗑 **အောင်မြင်ပါသည်!**\n👤 Reseller: `_{r_name}_` (ID: `{reseller_id}`) အား စနစ်အတွင်းမှ ဖျက်ထုတ်ပြီးပါပြီ။", parse_mode="Markdown")
@@ -299,8 +356,6 @@ def callback_delete_reseller(call):
 @bot.message_handler(func=lambda msg: msg.text == "🌐 View All Keys" and is_admin(msg.from_user.id))
 def admin_view_all_keys(message):
     user_states[message.from_user.id] = None
-    
-    # နောက်ဆုံးဒေတာကို ပိုမိုစိတ်ချရအောင် ပြခါနီး GitHub မှ Auto ဆွဲယူခြင်း
     pull_data_from_github()
     
     conn = sqlite3.connect(DB_FILE)
@@ -342,8 +397,6 @@ def process_key_data(message):
 @bot.message_handler(func=lambda msg: msg.text == "🔑 My Keys" and is_reseller(msg.from_user.id))
 def cmd_mykeys(message):
     user_states[message.from_user.id] = None
-    
-    # အိပ်ပျော်ရာက နိုးလာလျှင်လည်း ဒေတာမပျောက်ဘဲ စာရင်းအမှန်တွေ့ရစေရန် အော်တိုဆွဲယူခြင်း
     pull_data_from_github()
     
     conn = sqlite3.connect(DB_FILE)
@@ -369,7 +422,6 @@ def process_edit_key(message):
     parts = [p.strip() for p in message.text.split("|")]
     if len(parts) != 4: return bot.reply_to(message, "❌ ပုံစံမမှန်ပါ။ ပြန်လည်စစ်ဆေးပါ။")
     
-    # ပြင်ဆင်ခြင်းမပြုမီ GitHub အခြေအနေနှင့် ထပ်တူကျအောင် ဆွဲဖတ်ခြင်း
     pull_data_from_github()
     
     conn = sqlite3.connect(DB_FILE)
@@ -391,7 +443,7 @@ def process_edit_key(message):
         user_states[user_id] = None
     except: bot.reply_to(message, "❌ ပြင်ဆင်မှု မှားယွင်းနေသည်။")
 
-# 8. Delete Key (ID ဖြင့် စစ်ဆေးဖျက်ဆီးခြင်း)
+# 8. Delete Key
 @bot.message_handler(func=lambda msg: msg.text == "🗑 Delete Key" and is_reseller(msg.from_user.id))
 def cmd_delete_key_trigger(message):
     user_states[message.from_user.id] = 'waiting_for_del_id'
@@ -402,7 +454,6 @@ def process_delete_key_by_id(message):
     user_id = message.from_user.id
     id_to_del = message.text.strip()
     
-    # မဖျက်မီ နောက်ဆုံးအခြေအနေကို ဆွဲဖတ်ခြင်း
     pull_data_from_github()
     
     owner_id = get_key_owner_by_id(id_to_del)
@@ -421,7 +472,6 @@ def process_delete_key_by_id(message):
 
 # --- Main Run ---
 if __name__ == "__main__":
-    # Flask ဝဘ်ဆာဗာကို Thread တစ်ခုနှင့် သီးသန့် နောက်ကွယ်တွင် ပွင့်ထားခိုင်းမည်
     threading.Thread(target=run_web_server, daemon=True).start()
     print("[+] Flask Web Server + Telegram Bot Running 24/7 on Render...")
     bot.infinity_polling()
