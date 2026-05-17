@@ -35,66 +35,84 @@ DB_FILE = os.path.join(BASE_DIR, "keys_management.db")
 
 # --- GitHub မှ Key ရော Reseller ပါ ဒေတာပြန်ဆွဲယူမည့် (Auto-Restore) စနစ် ---
 def pull_data_from_github():
-    if not GITHUB_TOKEN:
-        print("[-] Pull Error: GITHUB_TOKEN is not set!")
-        return
-        
-    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+    headers = {}
+    if GITHUB_TOKEN:
+        headers["Authorization"] = f"token {GITHUB_TOKEN}"
+    headers["Accept"] = "application/vnd.github.v3+json"
     
     # 1. Pull Keys Data
     try:
         url_keys = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
         res_k = requests.get(url_keys, headers=headers)
+        file_content_keys = None
+        
         if res_k.status_code == 200:
             content_b64 = res_k.json().get("content", "")
             if content_b64:
-                file_content = base64.b64decode(content_b64).decode("utf-8")
-                conn = sqlite3.connect(DB_FILE)
-                cursor = conn.cursor()
-                cursor.execute("DELETE FROM auth_keys")
-                for line in file_content.split("\n"):
-                    if " | " in line:
-                        parts = [p.strip() for p in line.split("|")]
-                        if len(parts) == 4:
-                            cursor.execute("""
-                                INSERT OR IGNORE INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by) 
-                                VALUES (?, ?, ?, ?, ?)
-                            """, (parts[0], parts[1], parts[2], parts[3], ADMIN_ID))
-                conn.commit()
-                conn.close()
-                print("[+] Success: Keys data restored.")
-        else: print(f"[-] Keys Pull Failed: Status {res_k.status_code}")
+                file_content_keys = base64.b64decode(content_b64).decode("utf-8")
+        else:
+            # API ကျဆုံးပါက Public Raw Link မှ တိုက်ရိုက်ဆွဲယူမည်
+            raw_url_keys = f"https://raw.githubusercontent.com/{REPO_OWNER}/{REPO_NAME}/main/{FILE_PATH}"
+            res_raw_k = requests.get(raw_url_keys)
+            if res_raw_k.status_code == 200:
+                file_content_keys = res_raw_k.text
+
+        if file_content_keys:
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM auth_keys")
+            for line in file_content_keys.split("\n"):
+                if " | " in line:
+                    parts = [p.strip() for p in line.split("|")]
+                    if len(parts) == 4:
+                        cursor.execute("""
+                            INSERT OR IGNORE INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by) 
+                            VALUES (?, ?, ?, ?, ?)
+                        """, (parts[0], parts[1], parts[2], parts[3], ADMIN_ID))
+            conn.commit()
+            conn.close()
+            print("[+] Success: Keys data restored.")
     except Exception as e: print(f"[-] Keys Pull Exception: {str(e)}")
 
-    # 2. Pull Resellers Data (Logic ပြင်ဆင်ပြီး - Admin ကို မထိခိုက်စေဘဲ ဒေတာသွင်းမည်)
+    # 2. Pull Resellers Data (API ရော Public Link ပါ ၂ လမ်းကြောင်းလုံးဖြင့် အသေအချာဖတ်မည့်စနစ်)
     try:
+        file_content_resellers = None
         url_resellers = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{RESELLER_FILE_PATH}"
         res_r = requests.get(url_resellers, headers=headers)
+        
         if res_r.status_code == 200:
             content_b64 = res_r.json().get("content", "")
             if content_b64:
-                file_content = base64.b64decode(content_b64).decode("utf-8")
-                conn = sqlite3.connect(DB_FILE)
-                cursor = conn.cursor()
-                
-                # အရင်ဆုံး Main Admin ကလွဲပြီး ကျန်တဲ့သူတွေကို ရှင်းထုတ်သည်
-                cursor.execute("DELETE FROM users WHERE tg_id != ?", (ADMIN_ID,))
-                
-                for line in file_content.split("\n"):
-                    line = line.strip()
-                    if "|" in line:
-                        parts = [p.strip() for p in line.split("|")]
-                        if len(parts) == 2 and parts[0].isdigit():
-                            target_tg_id = int(parts[0])
-                            # ထည့်မည့်သူက Main Admin ဖြစ်နေလျှင် role ကို admin အတိုင်းပဲ ထားမည်
-                            if target_tg_id == ADMIN_ID:
-                                cursor.execute("INSERT OR REPLACE INTO users (tg_id, username, role) VALUES (?, ?, 'admin')", (target_tg_id, parts[1]))
-                            else:
-                                cursor.execute("INSERT OR REPLACE INTO users (tg_id, username, role) VALUES (?, ?, 'reseller')", (target_tg_id, parts[1]))
-                conn.commit()
-                conn.close()
-                print("[+] Success: Resellers data restored.")
-        else: print(f"[-] Resellers Pull Failed: Status {res_r.status_code}")
+                file_content_resellers = base64.b64decode(content_b64).decode("utf-8")
+        else:
+            # API Error ဖြစ်ပါက Token မလိုသော Public Raw URL စနစ်ဖြင့် ဒေတာကို ကုတ်ဆွဲမည်
+            raw_url_resellers = f"https://raw.githubusercontent.com/{REPO_OWNER}/{REPO_NAME}/main/{RESELLER_FILE_PATH}"
+            res_raw_r = requests.get(raw_url_resellers)
+            if res_raw_r.status_code == 200:
+                file_content_resellers = res_raw_r.text
+
+        if file_content_resellers:
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+            
+            # Main Admin ကို ချန်ပြီး ကျန်တာအကုန်ရှင်းထုတ်သည်
+            cursor.execute("DELETE FROM users WHERE tg_id != ?", (ADMIN_ID,))
+            
+            for line in file_content_resellers.split("\n"):
+                line = line.strip()
+                if "|" in line:
+                    parts = [p.strip() for p in line.split("|") if p.strip()]
+                    if len(parts) == 2:
+                        clean_id = parts[0].replace(" ", "")
+                        if clean_id.isdigit():
+                            target_tg_id = int(clean_id)
+                            user_role = 'admin' if target_tg_id == ADMIN_ID else 'reseller'
+                            cursor.execute("INSERT OR REPLACE INTO users (tg_id, username, role) VALUES (?, ?, ?)", (target_tg_id, parts[1], user_role))
+            conn.commit()
+            conn.close()
+            print("[+] Success: Resellers database re-populated from GitHub.")
+        else:
+            print("[-] Error: Could not fetch resellers data from GitHub API or Public Raw Link.")
     except Exception as e: print(f"[-] Resellers Pull Exception: {str(e)}")
 
 # --- Database Setup ---
@@ -173,7 +191,6 @@ def sync_resellers_to_github():
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        # GitHub ပေါ်သို့ ပြန်သိမ်းသည့်အခါ Admin ရော Reseller ပါ အကုန်စုသိမ်းမည်
         cursor.execute("SELECT tg_id, username FROM users")
         rows = cursor.fetchall()
         conn.close()
@@ -297,7 +314,7 @@ def process_reseller_name(message):
     user_states[admin_id] = None
     if admin_id in reseller_temp_data: del reseller_temp_data[admin_id]
 
-# 2. Reseller List (Admin ကော Reseller ပါ စာရင်းထွက်လာအောင် ပြင်ဆင်ထားသည်)
+# 2. Reseller List
 @bot.message_handler(func=lambda msg: msg.text == "📊 Reseller List" and is_admin(msg.from_user.id))
 def admin_view_resellers(message):
     user_states[message.from_user.id] = None
