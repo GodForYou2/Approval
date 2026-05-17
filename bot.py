@@ -73,7 +73,7 @@ def pull_data_from_github():
             print("[+] Success: Keys data restored.")
     except Exception as e: print(f"[-] Keys Pull Exception: {str(e)}")
 
-    # 2. Pull Resellers Data (Space Error များကို လုံးဝကျော်ဖြတ်ပြီး ဖတ်မည့် အဆင့်မြင့်စနစ်)
+    # 2. Pull Resellers Data
     try:
         file_content_resellers = None
         url_resellers = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{RESELLER_FILE_PATH}"
@@ -93,34 +93,28 @@ def pull_data_from_github():
             conn = sqlite3.connect(DB_FILE)
             cursor = conn.cursor()
             
-            # Main Admin မှလွဲ၍ ကျန်တာအကုန်ရှင်းထုတ်သည်
+            # ဒေတာဟောင်း ရှင်းထုတ်သည်
             cursor.execute("DELETE FROM users WHERE tg_id != ?", (ADMIN_ID,))
             
             lines = file_content_resellers.split("\n")
-            inserted_count = 0
-            
             for line in lines:
                 line = line.strip()
                 if not line: continue
                 
                 if "|" in line:
-                    # Space များကို ကြိုတင်ဖယ်ထုတ်ပြီးမှ အပိုင်းခွဲသည်
                     parts = [p.strip() for p in line.split("|") if p.strip()]
                     if len(parts) == 2:
-                        clean_id = parts[0].replace(" ", "") # Space အားလုံးကို ဖျက်ပစ်သည်
+                        clean_id = parts[0].replace(" ", "")
                         if clean_id.isdigit():
                             target_tg_id = int(clean_id)
                             user_role = 'admin' if target_tg_id == ADMIN_ID else 'reseller'
                             cursor.execute("INSERT OR REPLACE INTO users (tg_id, username, role) VALUES (?, ?, ?)", (target_tg_id, parts[1], user_role))
-                            inserted_count += 1
-                        else:
-                            print(f"[-] Line Skipped (ID Not Digit): {line}")
-                    else:
-                        print(f"[-] Line Skipped (Invalid Format): {line}")
             
+            # Main Admin ကို Database ထဲတွင် အမြဲရှိနေအောင် သေချာ ထည့်သွင်းထားမည်
+            cursor.execute("INSERT OR REPLACE INTO users (tg_id, username, role) VALUES (?, ?, 'admin')", (ADMIN_ID, 'Main_Admin'))
             conn.commit()
             conn.close()
-            print(f"[+] Success: Resellers database updated. Inserted {inserted_count} users.")
+            print("[+] Success: Resellers database updated smoothly.")
         else:
             print("[-] Error: Could not fetch resellers data from GitHub.")
     except Exception as e: print(f"[-] Resellers Pull Exception: {str(e)}")
@@ -324,24 +318,37 @@ def process_reseller_name(message):
     user_states[admin_id] = None
     if admin_id in reseller_temp_data: del reseller_temp_data[admin_id]
 
-# 2. Reseller List
-@bot.message_handler(func=lambda msg: msg.text == "📊 Reseller List" and is_admin(msg.from_user.id))
+# 2. Reseller List (No Reply လုံးဝမဖြစ်စေရန် အထူးပြုပြင်ထားသော စနစ်)
+@bot.message_handler(func=lambda msg: msg.text == "📊 Reseller List")
 def admin_view_resellers(message):
-    user_states[message.from_user.id] = None
+    user_id = message.from_user.id
+    user_states[user_id] = None
+    
+    # ခလုတ်နှိပ်သူသည် Admin ဟုတ်မဟုတ် အရင်စစ်မည်
+    if not is_admin(user_id):
+        return bot.reply_to(message, "🚫 သင်သည် Admin မဟုတ်သဖြင့် ဤစာရင်းအား ကြည့်ရှုခွင့် မရှိပါ။")
+        
+    # GitHub ကနေ ဒေတာ အရင်ဆွဲယူမည်
     pull_data_from_github()
     
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT tg_id, username, role FROM users")
-    rows = cursor.fetchall()
-    conn.close()
-    if not rows: return bot.reply_to(message, "📭 စာရင်း မရှိသေးပါ။")
-    
-    res = f"👥 **အသုံးပြုသူ စာရင်းစုစုပေါင်း:** {len(rows)} ဦး\n\n"
-    for r in rows:
-        role_tag = "👑 Admin" if r[2] == 'admin' else "👤 Reseller"
-        res += f"• **{r[1]}** (ID: `{r[0]}`) - [{role_tag}]\n"
-    bot.reply_to(message, res, parse_mode="Markdown")
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("SELECT tg_id, username, role FROM users")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        if not rows: 
+            return bot.reply_to(message, "📭 Database ထဲတွင် အသုံးပြုသူစာရင်း လုံးဝမရှိသေးပါ။")
+        
+        res = f"👥 **အသုံးပြုသူ စာရင်းစုစုပေါင်း:** {len(rows)} ဦး\n\n"
+        for r in rows:
+            role_tag = "👑 Admin" if r[2] == 'admin' else "👤 Reseller"
+            res += f"• **{r[1]}** (ID: `{r[0]}`) - [{role_tag}]\n"
+            
+        bot.reply_to(message, res, parse_mode="Markdown")
+    except Exception as e:
+        bot.reply_to(message, f"❌ စာရင်းထုတ်ရာတွင် Error တစ်ခု တက်သွားပါသည်: {str(e)}")
 
 # 3. Delete Reseller
 @bot.message_handler(func=lambda msg: msg.text == "🗑 Delete Reseller" and is_admin(msg.from_user.id))
@@ -359,7 +366,7 @@ def admin_delete_reseller_menu(message):
     markup = types.InlineKeyboardMarkup(row_width=1)
     for r in rows:
         markup.add(types.InlineKeyboardButton(text=f"❌ {r[1]} (ID: {r[0]})", callback_data=f"del_reseller_{r[0]}"))
-    bot.send_message(message.chat.id, "🗑 **ဖျက်ထုတ်လိုသော Reseller နာမည်အား နှိပ်ပါ-**", reply_markup=markup, parse_mode="Markdown")
+    bot.send_message(message.chat.id, "🗑 **<br>ဖျက်ထုတ်လိုသော Reseller နာမည်အား နှိပ်ပါ-**", reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("del_reseller_"))
 def callback_delete_reseller(call):
