@@ -447,39 +447,63 @@ def cmd_mykeys(message):
     for r in rows: res += f"• ID: `{r[0]}` -> Key: `{r[1]}`\n"
     bot.reply_to(message, res, parse_mode="Markdown")
 
-# 7. Edit Key
+# 7. Edit Key (Device ID အား အခြေခံ၍ ကျန်ရှိသော အချက်အလက် ၃ ခုလုံး ပြင်ဆင်သည့်စနစ်)
 @bot.message_handler(func=lambda msg: msg.text == "✏️ Edit Key" and is_reseller(msg.from_user.id))
 def cmd_editkey(message):
     user_states[message.from_user.id] = 'waiting_for_edit_data'
-    msg_text = ("✏️ ပြင်ဆင်လိုသော Key ပုံစံကို ပို့ပေးပါ-\n\n`ပြင်မည့်Key | IDသစ် | Unitသစ် | Durationသစ်`")
+    msg_text = ("✏️ **ပြင်ဆင်လိုသော အချက်အလက်ကို အောက်ပါပုံစံအတိုင်း ပို့ပေးပါ-**\n\n"
+                "`ရှာမည့်DeviceID | Keyသစ် | Unitသစ် | Durationသစ်`\n\n"
+                "💡 **ပုံစံနမူနာ:**\n`F4AFA83F4F1577DE | NEW-KEY-888 | 5 | m`")
     bot.reply_to(message, msg_text, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda msg: user_states.get(msg.from_user.id) == 'waiting_for_edit_data' and msg.text not in MENU_BUTTONS)
 def process_edit_key(message):
     user_id = message.from_user.id
     parts = [p.strip() for p in message.text.split("|")]
-    if len(parts) != 4: return bot.reply_to(message, "❌ ပုံစံမမှန်ပါ။ ပြန်လည်စစ်ဆေးပါ။")
+    if len(parts) != 4: 
+        user_states[user_id] = None # ပုံစံမမှန်ရင် State ပိတ်ပြီး ပြန်ထွက်သည်
+        return bot.reply_to(message, "❌ ပုံစံမမှန်ပါ။ `DeviceID | Keyသစ် | Unitသစ် | Durationသစ်` အတိုင်း ပြန်လည်စစ်ဆေးပါ။")
+    
+    target_device_id = parts[0]  # ရှာဖွေမည့် Device ID
+    new_key = parts[1]           # အစားထိုးမည့် Key သစ်
+    new_unit = parts[2]          # အစားထိုးမည့် Unit သစ်
+    new_duration = parts[3]      # အစားထိုးမည့် Duration သစ်
     
     pull_data_from_github()
     
+    # ဤ Device ID ကို မည်သူက ထည့်သွင်းခဲ့သလဲ အရင်ရှာဖွေစစ်ဆေးသည်
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("SELECT added_by FROM auth_keys WHERE key_string = ?", (parts[0],))
+    cursor.execute("SELECT added_by FROM auth_keys WHERE target_id = ?", (target_device_id,))
     result = cursor.fetchone()
     conn.close()
+    
     owner_id = result[0] if result else None
-    if owner_id is None: return bot.reply_to(message, "❌ ဤ Key ကို ရှာမတွေ့ပါ။")
-    if owner_id != user_id and not is_admin(user_id): return bot.reply_to(message, "🚫 ပြင်ဆင်ခွင့်မရှိပါ။")
+    if owner_id is None: 
+        user_states[user_id] = None
+        return bot.reply_to(message, "❌ ဤ Device ID ကို Database ထဲတွင် ရှာမတွေ့ပါ။")
+    if owner_id != user_id and not is_admin(user_id): 
+        user_states[user_id] = None
+        return bot.reply_to(message, "🚫 သင်သည် ဤ Key အား ပြင်ဆင်ခွင့်မရှိပါ။")
+        
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        cursor.execute("UPDATE auth_keys SET target_id=?, unit_val=?, duration_type=? WHERE key_string=?", (parts[1], parts[2], parts[3], parts[0]))
+        # ရှေ့ဆုံးက Device ID ကို အခြေခံပြီး ကျန်တဲ့ Key, Unit, Duration သုံးခုလုံးကို လိုက်ပြင်သည့် Logic
+        cursor.execute("""
+            UPDATE auth_keys 
+            SET key_string=?, unit_val=?, duration_type=? 
+            WHERE target_id=?
+        """, (new_key, new_unit, new_duration, target_device_id))
         conn.commit()
         conn.close()
-        bot.reply_to(message, "✏️ Key ကို ပြင်ဆင်ပြီးပါပြီ။ Cloud သို့ Update လုပ်နေသည်...")
+        
+        bot.reply_to(message, f"✏️ Device ID `{target_device_id}` ၏ အချက်အလက်များကို ပြင်ဆင်ပြီးပါပြီ။ Cloud သို့ Update လုပ်နေသည်...")
         sync_db_to_github()
         user_states[user_id] = None
-    except: bot.reply_to(message, "❌ ပြင်ဆင်မှု မှားယွင်းနေသည်။")
+    except Exception as e: 
+        user_states[user_id] = None
+        bot.reply_to(message, f"❌ ပြင်ဆင်မှု မှားယွင်းနေပါသည်- {str(e)}")
 
 # 8. Delete Key
 @bot.message_handler(func=lambda msg: msg.text == "🗑 Delete Key" and is_reseller(msg.from_user.id))
