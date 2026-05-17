@@ -51,18 +51,21 @@ def pull_data_from_github():
             if content_b64:
                 file_content = base64.b64decode(content_b64).decode("utf-8")
                 
-                # Local Database ထဲသို့ ဒေတာများ ပြန်လည် ထည့်သွင်းခြင်း
                 conn = sqlite3.connect(DB_FILE)
                 cursor = conn.cursor()
                 
-                # အဟောင်းများကို ရှင်းထုတ်ပြီး GitHub က ဒေတာအသစ်တွေပဲ အစားထိုးမည်
+                # မူရင်း Table နှစ်ခုလုံးက အချက်အလက်ဟောင်းများကို ရှင်းထုတ်ပြီး အစားထိုးမည်
                 cursor.execute("DELETE FROM keys")
+                cursor.execute("DELETE FROM auth_keys")
                 
                 for line in file_content.split("\n"):
                     if " | " in line:
                         parts = [p.strip() for p in line.split("|")]
                         if len(parts) == 4:
+                            # keys ရော auth_keys ထဲသို့ပါ ဒေတာများကို ပြန်လည်ဖြည့်သွင်းပေးခြင်း
                             cursor.execute("INSERT OR IGNORE INTO keys (target_id, key_string, unit_val, duration_type, added_by) VALUES (?, ?, ?, ?, ?)",
+                                           (parts[0], parts[1], parts[2], parts[3], ADMIN_ID))
+                            cursor.execute("INSERT OR IGNORE INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by) VALUES (?, ?, ?, ?, ?)",
                                            (parts[0], parts[1], parts[2], parts[3], ADMIN_ID))
                 conn.commit()
                 conn.close()
@@ -76,6 +79,7 @@ def pull_data_from_github():
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+    # မူရင်း Table များ အကုန်လုံးကို မပျက်မကွက် တည်ဆောက်ခြင်း
     cursor.execute('''CREATE TABLE IF NOT EXISTS keys (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         target_id TEXT,
@@ -181,7 +185,7 @@ def force_sync(message):
     bot.send_message(message.chat.id, "⏳ GitHub ဘက်နှင့် ဒေတာများ အပြန်အလှန် Sync လုပ်နေပါတယ်...")
     pull_data_from_github() 
     if sync_to_github():   
-        bot.send_message(message.chat.id, "✅ ဒေတာအားလုံး အပြန်အလှန် ချိတ်ဆက်ကာ Update ဖြစ်သွားပါပြီဗျာ၊၊")
+        bot.send_message(message.chat.id, "✅ ဒေတာအားလုံး အပြန်အလှန် ချက်ဆက်ကာ Update ဖြစ်သွားပါပြီဗျာ၊၊")
     else:
         bot.send_message(message.chat.id, "❌ GitHub Sync လုပ်ဆောင်ချက် ပျက်ကွက်ခဲ့ပါတယ်။")
 
@@ -209,8 +213,13 @@ def process_key_input(message):
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
+        
+        # မူရင်းအတိုင်း keys ရော auth_keys ထဲကိုပါ ဒေတာ အပြည့်အစုံ သိမ်းဆည်းခြင်း
         cursor.execute("INSERT INTO keys (target_id, key_string, unit_val, duration_type, added_by) VALUES (?, ?, ?, ?, ?)",
                        (target_id, key_string, unit_val, duration_type, message.from_user.id))
+        cursor.execute("INSERT INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by) VALUES (?, ?, ?, ?, ?)",
+                       (target_id, key_string, unit_val, duration_type, message.from_user.id))
+        
         conn.commit()
         conn.close()
         
