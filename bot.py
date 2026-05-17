@@ -1,30 +1,18 @@
 import os
 import sqlite3
-import telebot
 import requests
+import telebot
 import base64
 from telebot import types
 import threading
 from flask import Flask
 
-# ================= [ FLASK WEB SERVER FOR RENDER (NO SLEEP) ] =================
-app = Flask('')
-
-@app.route('/')
-def home():
-    return "Bot is running 24/7 without sleeping!"
-
-def run_web_server():
-    app.run(host='0.0.0.0', port=8080)
-
-# ================= [ CONFIGURATION ] =================
-BOT_TOKEN = "8855766112:AAFrm_h0BnN8ADOruSFasB0HKUOUum09N_4"
-ADMIN_ID = 8701781484
-
-GITHUB_TOKEN = os.getenv("GH_TOKEN")
-REPO_OWNER = "GodForYou2" 
-REPO_NAME = "Approval" 
-FILE_PATH = "key.txt" 
+# --- Configuration (Render Environment Variable မှတစ်ဆင့် ဖတ်ရှုမည်) ---
+BOT_TOKEN = "7759880193:AAFW_t4E4zL_b2Wv6jOUnwUvXgYnPl6Vz4E"  # အစ်ကို့ Bot Token
+GITHUB_TOKEN = os.getenv("GH_TOKEN")  # ကုဒ်ထဲတွင် token အစစ်ကို တိုက်ရိုက်မရေးဘဲ ဤအတိုင်းထားပါ
+REPO_OWNER = "GodForYou2"
+REPO_NAME = "Approval"
+FILE_PATH = "key.txt"
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
@@ -32,10 +20,10 @@ bot = telebot.TeleBot(BOT_TOKEN)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "keys_management.db")
 
-# --- GitHub မှ ဒေတာများကို လှမ်းယူပြီး Local DB ထဲသို့ ပြန်ထည့်ပေးမည့် Function ---
+# --- GitHub မှ ဒေတာများကို လှမ်းယူပြီး Local DB ထဲသို့ ပြန်ထည့်ပေးမည့် မောင်းနှင်ချက်သစ် ---
 def pull_data_from_github():
     if not GITHUB_TOKEN:
-        print("[-] Pull Error: GH_TOKEN is not set!")
+        print("[-] Pull Error: GH_TOKEN is not set in Render Environment!")
         return
         
     url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
@@ -54,19 +42,15 @@ def pull_data_from_github():
                 conn = sqlite3.connect(DB_FILE)
                 cursor = conn.cursor()
                 
-                # မူရင်း Table နှစ်ခုလုံးက အချက်အလက်ဟောင်းများကို ရှင်းထုတ်ပြီး အစားထိုးမည်
+                # Render နိုးလာလျှင် Local DB ကို အရင်ရှင်းပြီး GitHub က ဒေတာအသစ် ပြန်ဖြည့်မည်
                 cursor.execute("DELETE FROM keys")
-                cursor.execute("DELETE FROM auth_keys")
                 
                 for line in file_content.split("\n"):
                     if " | " in line:
                         parts = [p.strip() for p in line.split("|")]
                         if len(parts) == 4:
-                            # keys ရော auth_keys ထဲသို့ပါ ဒေတာများကို ပြန်လည်ဖြည့်သွင်းပေးခြင်း
                             cursor.execute("INSERT OR IGNORE INTO keys (target_id, key_string, unit_val, duration_type, added_by) VALUES (?, ?, ?, ?, ?)",
-                                           (parts[0], parts[1], parts[2], parts[3], ADMIN_ID))
-                            cursor.execute("INSERT OR IGNORE INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by) VALUES (?, ?, ?, ?, ?)",
-                                           (parts[0], parts[1], parts[2], parts[3], ADMIN_ID))
+                                           (parts[0], parts[1], parts[2], parts[3], 6077364426))
                 conn.commit()
                 conn.close()
                 print("[+] Success: GitHub Data pulled and restored to Local DB.")
@@ -79,16 +63,7 @@ def pull_data_from_github():
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    # မူရင်း Table များ အကုန်လုံးကို မပျက်မကွက် တည်ဆောက်ခြင်း
     cursor.execute('''CREATE TABLE IF NOT EXISTS keys (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        target_id TEXT,
-        key_string TEXT UNIQUE,
-        unit_val TEXT,
-        duration_type TEXT,
-        added_by INTEGER
-    )''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS auth_keys (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         target_id TEXT,
         key_string TEXT UNIQUE,
@@ -103,16 +78,17 @@ def init_db():
     )''')
     conn.commit()
     
+    # Creator ကို Admin အဖြစ် အော်တိုထည့်သွင်းခြင်း
     try:
         cursor.execute("INSERT OR IGNORE INTO admins (tg_id, username, role) VALUES (?, ?, ?)", 
-                       (ADMIN_ID, "Creator", "creator"))
+                       (6077364426, "Creator", "creator"))
         conn.commit()
     except Exception as e:
         print(f"Admin init error: {e}")
     finally:
         conn.close()
 
-# Database ကို စဆောက်ပြီးတာနဲ့ GitHub က ဒေတာများကို အော်တိုဆွဲခိုင်းမည်
+# Database ကို စတင်ဆောက်လုပ်ပြီးတာနဲ့ GitHub မှ ဒေတာများကို အော်တိုလှမ်းဆွဲခိုင်းမည်
 init_db()
 pull_data_from_github()
 
@@ -126,8 +102,9 @@ def is_admin(user_id):
     return res is not None
 
 def sync_to_github():
+    """本地 Database ထဲက Key တွေကို GitHub က key.txt ထဲသို့ Format အတိုင်း လှမ်းသိမ်းပေးမည့် Function"""
     if not GITHUB_TOKEN:
-        print("[-] Sync Error: GH_TOKEN is not set!")
+        print("[-] Sync Error: GH_TOKEN is not set in Render Environment!")
         return False
         
     conn = sqlite3.connect(DB_FILE)
@@ -136,11 +113,13 @@ def sync_to_github():
     rows = cursor.fetchall()
     conn.close()
     
+    # Format အတိုင်း စာသားပြောင်းလဲခြင်း (Format: ID | Key | Unit | Duration)
     content_lines = []
     for r in rows:
         content_lines.append(f"{r[0]} | {r[1]} | {r[2]} | {r[3]}")
     file_content = "\n".join(content_lines)
     
+    # GitHub API သုံးပြီး လက်ရှိဖိုင်ရဲ့ SHA Key ကို အရင်တောင်းခြင်း
     url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
     headers = {
         "Authorization": f"token {GITHUB_TOKEN}",
@@ -152,6 +131,7 @@ def sync_to_github():
     if r_get.status_code == 200:
         sha = r_get.json().get("sha")
         
+    # GitHub ပေါ်သို့ ဖိုင်အသစ်တွန်းတင်ခြင်း (Push/Commit)
     content_b64 = base64.b64encode(file_content.encode("utf-8")).decode("utf-8")
     
     payload = {
@@ -162,15 +142,21 @@ def sync_to_github():
         payload["sha"] = sha
         
     r_put = requests.put(url, headers=headers, json=payload)
-    return r_put.status_code in [200, 201]
+    if r_put.status_code in [200, 201]:
+        print("[+] Sync Success: GitHub key.txt updated.")
+        return True
+    else:
+        print(f"[-] Sync Failed: {r_put.status_code} - {r_put.text}")
+        return False
 
-# --- Telegram Bot Handlers ---
+# --- Telegram Bot Commands & Handlers ---
+
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_id = message.from_user.id
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     
-    if is_admin(user_id) or user_id == ADMIN_ID:
+    if is_admin(user_id):
         btn_add = types.KeyboardButton("➕ Add Key")
         btn_list = types.KeyboardButton("📋 List Keys")
         btn_sync = types.KeyboardButton("🔄 Force Sync GitHub")
@@ -181,54 +167,56 @@ def send_welcome(message):
 
 @bot.message_handler(func=lambda m: m.text == "🔄 Force Sync GitHub")
 def force_sync(message):
-    if not (is_admin(message.from_user.id) or message.from_user.id == ADMIN_ID): return
-    bot.send_message(message.chat.id, "⏳ GitHub ဘက်နှင့် ဒေတာများ အပြန်အလှန် Sync လုပ်နေပါတယ်...")
-    pull_data_from_github() 
-    if sync_to_github():   
-        bot.send_message(message.chat.id, "✅ ဒေတာအားလုံး အပြန်အလှန် ချက်ဆက်ကာ Update ဖြစ်သွားပါပြီဗျာ၊၊")
+    if not is_admin(message.from_user.id):
+        return
+    bot.send_message(message.chat.id, "⏳ GitHub သို့ ဒေတာလှမ်းပို့နေပါတယ်... ခဏစောင့်ပေးပါ၊၊")
+    
+    # Force Sync နှိပ်လျှင် ပိုမိုစိတ်ချရအောင် နှစ်ဖက်စလုံးကို အပြန်အလှန် ချိတ်ဆက်ပေးလိုက်ခြင်း
+    pull_data_from_github()
+    if sync_to_github():
+        bot.send_message(message.chat.id, "✅ GitHub ပေါ်က `key.txt` ထဲကို ဒေတာတွေ အောင်မြင်စွာ ထည့်သွင်းပြီးပါပြီဗျာ၊၊")
     else:
-        bot.send_message(message.chat.id, "❌ GitHub Sync လုပ်ဆောင်ချက် ပျက်ကွက်ခဲ့ပါတယ်။")
+        bot.send_message(message.chat.id, "❌ GitHub Sync လုပ်ဆောင်ချက် ပျက်ကွက်ခဲ့ပါတယ်။ Render Environment Variable က `GH_TOKEN` ကို ပြန်စစ်ပေးပါ၊၊")
 
 @bot.message_handler(func=lambda m: m.text == "➕ Add Key")
 def add_key_start(message):
-    if not (is_admin(message.from_user.id) or message.from_user.id == ADMIN_ID): return
+    if not is_admin(message.from_user.id):
+        return
     msg = bot.send_message(message.chat.id, "📝 ကျေးဇူးပြု၍ Key ဒေတာကို အောက်ပါ Format အတိုင်း ပေးပို့ပေးပါဦးခင်ဗျာ-\n\n`ID | Key | Unit | Duration`\n\n*(ဥပမာ - `12345 | MY-KEY-999 | 1 | Day`)*", parse_mode="Markdown")
     bot.register_next_step_handler(msg, process_key_input)
 
 def process_key_input(message):
-    if not (is_admin(message.from_user.id) or message.from_user.id == ADMIN_ID): return
-    
+    if not is_admin(message.from_user.id):
+        return
+        
     text = message.text
     if " | " not in text:
-        bot.send_message(message.chat.id, "❌ ပို့လိုက်တဲ့ Format မမှန်ကန်ပါဘူး။")
+        bot.send_message(message.chat.id, "❌ ပို့လိုက်တဲ့ Format မမှန်ကန်ပါဘူး။ ကြိုးစားမှု ပယ်ဖျက်လိုက်ပါပြီ၊၊")
         return
         
     parts = [p.strip() for p in text.split("|")]
     if len(parts) != 4:
-        bot.send_message(message.chat.id, "❌ အချက်အလက် (၄) ခု ပြည့်စုံအောင် ထည့်ပေးရပါမယ်ရှင်၊၊")
+        bot.send_message(message.chat.id, "❌ အချက်အလက် (၄) ခု ပြည့်စုံအောင် ထည့်ပေးရပါမယ်ရှင်။ ထပ်စမ်းကြည့်ပါ၊၊")
         return
         
     target_id, key_string, unit_val, duration_type = parts
     
+    # Local SQLite DB ထဲသို့ အရင်သိမ်းဆည်းခြင်း
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        
-        # မူရင်းအတိုင်း keys ရော auth_keys ထဲကိုပါ ဒေတာ အပြည့်အစုံ သိမ်းဆည်းခြင်း
         cursor.execute("INSERT INTO keys (target_id, key_string, unit_val, duration_type, added_by) VALUES (?, ?, ?, ?, ?)",
                        (target_id, key_string, unit_val, duration_type, message.from_user.id))
-        cursor.execute("INSERT INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by) VALUES (?, ?, ?, ?, ?)",
-                       (target_id, key_string, unit_val, duration_type, message.from_user.id))
-        
         conn.commit()
         conn.close()
         
         bot.send_message(message.chat.id, f"📥 Local Database ထဲသို့ သိမ်းဆည်းပြီးပါပြီ။\n🔑 Key: `{key_string}`\n\n⏳ GitHub သို့ Auto-Sync လုပ်နေပါတယ်...", parse_mode="Markdown")
         
+        # GitHub သို့ Auto လှမ်းတွန်းတင်ခြင်း
         if sync_to_github():
             bot.send_message(message.chat.id, "🚀 GitHub ပေါ်က `key.txt` ထဲသို့လည်း ဒေတာ ရောက်ရှိသွားပါပြီဗျာ၊၊")
         else:
-            bot.send_message(message.chat.id, "⚠️ Local DB ထဲပဲ သိမ်းမိပြီး GitHub ဆီသို့ ဒေတာမရောက်သွားပါ။")
+            bot.send_message(message.chat.id, "⚠️ Local DB ထဲပဲ သိမ်းမိပြီး GitHub ဆီသို့ ဒေတာမရောက်သွားပါ။ (Token Error ဖြစ်နိုင်ပါသည်)")
             
     except sqlite3.IntegrityError:
         bot.send_message(message.chat.id, "❌ ဤ Key သည် Database ထဲတွင် ရှိနှင့်ပြီးသား ဖြစ်နေပါတယ်ရှင်၊၊")
@@ -237,8 +225,10 @@ def process_key_input(message):
 
 @bot.message_handler(func=lambda m: m.text == "📋 List Keys")
 def list_keys(message):
-    if not (is_admin(message.from_user.id) or message.from_user.id == ADMIN_ID): return
-    
+    if not is_admin(message.from_user.id):
+        return
+        
+    # List မပြခင် GitHub ပေါ်က နောက်ဆုံးအခြေအနေကို အမြဲ Auto ဆွဲဖတ်ခိုင်းမည်
     pull_data_from_github()
         
     conn = sqlite3.connect(DB_FILE)
@@ -257,11 +247,21 @@ def list_keys(message):
         
     bot.send_message(message.chat.id, res_text, parse_mode="Markdown")
 
-# ================= [ MAIN EXECUTION ] =================
+# --- Flask Server for Render Deployment ---
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running 24/7 Live!"
+
+def run_flask():
+    app.run(host="0.0.0.0", port=10000)
+
 if __name__ == "__main__":
-    t = threading.Thread(target=run_web_server)
+    # Flask ဆာဗာကို Background thread ဖြင့် ပတ်မောင်းထားခြင်း
+    t = threading.Thread(target=run_flask)
     t.daemon = True
     t.start()
     
-    print(f"[+] Render Auto-Restore Bot is running...")
+    print("[+] Telegram Bot is polling...")
     bot.infinity_polling()
