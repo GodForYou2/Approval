@@ -66,7 +66,7 @@ def pull_data_from_github():
         else: print(f"[-] Keys Pull Failed: Status {res_k.status_code}")
     except Exception as e: print(f"[-] Keys Pull Exception: {str(e)}")
 
-    # 2. Pull Resellers Data (ဖတ်ရလွယ်ကူအောင် ကုဒ်ကို ပိုမို စိတ်ချရစွာ ပြင်ဆင်ထားသည်)
+    # 2. Pull Resellers Data (Logic ပြင်ဆင်ပြီး - Admin ကို မထိခိုက်စေဘဲ ဒေတာသွင်းမည်)
     try:
         url_resellers = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{RESELLER_FILE_PATH}"
         res_r = requests.get(url_resellers, headers=headers)
@@ -76,13 +76,21 @@ def pull_data_from_github():
                 file_content = base64.b64decode(content_b64).decode("utf-8")
                 conn = sqlite3.connect(DB_FILE)
                 cursor = conn.cursor()
-                cursor.execute("DELETE FROM users WHERE role = 'reseller'")
+                
+                # အရင်ဆုံး Main Admin ကလွဲပြီး ကျန်တဲ့သူတွေကို ရှင်းထုတ်သည်
+                cursor.execute("DELETE FROM users WHERE tg_id != ?", (ADMIN_ID,))
+                
                 for line in file_content.split("\n"):
                     line = line.strip()
                     if "|" in line:
                         parts = [p.strip() for p in line.split("|")]
-                        if len(parts) == 2 and parts[0].isdigit(): # Telegram ID စစ်စစ်ဖြစ်မှ သွင်းမည်
-                            cursor.execute("INSERT OR REPLACE INTO users (tg_id, username, role) VALUES (?, ?, 'reseller')", (int(parts[0]), parts[1]))
+                        if len(parts) == 2 and parts[0].isdigit():
+                            target_tg_id = int(parts[0])
+                            # ထည့်မည့်သူက Main Admin ဖြစ်နေလျှင် role ကို admin အတိုင်းပဲ ထားမည်
+                            if target_tg_id == ADMIN_ID:
+                                cursor.execute("INSERT OR REPLACE INTO users (tg_id, username, role) VALUES (?, ?, 'admin')", (target_tg_id, parts[1]))
+                            else:
+                                cursor.execute("INSERT OR REPLACE INTO users (tg_id, username, role) VALUES (?, ?, 'reseller')", (target_tg_id, parts[1]))
                 conn.commit()
                 conn.close()
                 print("[+] Success: Resellers data restored.")
@@ -165,7 +173,8 @@ def sync_resellers_to_github():
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        cursor.execute("SELECT tg_id, username FROM users WHERE role = 'reseller'")
+        # GitHub ပေါ်သို့ ပြန်သိမ်းသည့်အခါ Admin ရော Reseller ပါ အကုန်စုသိမ်းမည်
+        cursor.execute("SELECT tg_id, username FROM users")
         rows = cursor.fetchall()
         conn.close()
         
@@ -275,7 +284,7 @@ def process_reseller_name(message):
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        cursor.execute("INSERT OR REPLACE INTO users (tg_id, username, role) VALUES (?, ?, ?)", (reseller_id, reseller_name, 'reseller'))
+        cursor.execute("INSERT OR REPLACE INTO users (tg_id, username, role) VALUES (?, ?, 'reseller')", (reseller_id, reseller_name))
         conn.commit()
         conn.close()
         
@@ -288,20 +297,23 @@ def process_reseller_name(message):
     user_states[admin_id] = None
     if admin_id in reseller_temp_data: del reseller_temp_data[admin_id]
 
-# 2. Reseller List
+# 2. Reseller List (Admin ကော Reseller ပါ စာရင်းထွက်လာအောင် ပြင်ဆင်ထားသည်)
 @bot.message_handler(func=lambda msg: msg.text == "📊 Reseller List" and is_admin(msg.from_user.id))
 def admin_view_resellers(message):
     user_states[message.from_user.id] = None
-    pull_data_from_github() # အမြဲနောက်ဆုံးအခြေအနေကို ဆွဲယူဖတ်ခိုင်းသည်
+    pull_data_from_github()
     
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("SELECT tg_id, username FROM users WHERE role = 'reseller'")
+    cursor.execute("SELECT tg_id, username, role FROM users")
     rows = cursor.fetchall()
     conn.close()
-    if not rows: return bot.reply_to(message, "📭 Reseller စာရင်း မရှိသေးပါ။")
-    res = f"👥 **စုစုပေါင်း Reseller အရေအတွက်:** {len(rows)} ဦး\n\n"
-    for r in rows: res += f"• **{r[1]}** (ID: `{r[0]}`)\n"
+    if not rows: return bot.reply_to(message, "📭 စာရင်း မရှိသေးပါ။")
+    
+    res = f"👥 **အသုံးပြုသူ စာရင်းစုစုပေါင်း:** {len(rows)} ဦး\n\n"
+    for r in rows:
+        role_tag = "👑 Admin" if r[2] == 'admin' else "👤 Reseller"
+        res += f"• **{r[1]}** (ID: `{r[0]}`) - [{role_tag}]\n"
     bot.reply_to(message, res, parse_mode="Markdown")
 
 # 3. Delete Reseller
