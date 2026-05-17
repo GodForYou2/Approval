@@ -318,7 +318,7 @@ def process_reseller_name(message):
     user_states[admin_id] = None
     if admin_id in reseller_temp_data: del reseller_temp_data[admin_id]
 
-# 2. Reseller List (Special Character Error များကို ကျော်လွှားရန် HTML စနစ်သို့ ပြောင်းလဲထားသည်)
+# 2. Reseller List
 @bot.message_handler(func=lambda msg: msg.text == "📊 Reseller List")
 def admin_view_resellers(message):
     user_id = message.from_user.id
@@ -339,11 +339,9 @@ def admin_view_resellers(message):
         if not rows: 
             return bot.reply_to(message, "📭 Database ထဲတွင် အသုံးပြုသူစာရင်း လုံးဝမရှိသေးပါ။")
         
-        # HTML formatting သုံးပြီး Telegram စာသားပုံစံ ပြင်ဆင်သည်
         res = f"👥 <b>အသုံးပြုသူ စာရင်းစုစုပေါင်း:</b> {len(rows)} ဦး\n\n"
         for r in rows:
             role_tag = "👑 Admin" if r[2] == 'admin' else "👤 Reseller"
-            # နာမည်ထဲတွင် 特殊符号များ ပါခဲ့ပါက ကာကွယ်ရန် HTML escape အနည်းငယ် သုံးသည်
             clean_name = str(r[1]).replace("<", "&lt;").replace(">", "&gt;")
             res += f"• <b>{clean_name}</b> (ID: {r[0]}) - [{role_tag}]\n"
             
@@ -415,7 +413,7 @@ def cmd_addkey(message):
     msg_text = ("✍️ ကျေးဇူးပြု၍ Key အချက်အလက်ကို အောက်ပါပုံစံအတိုင်း တိကျစွာ ပို့ပေးပါ-\n\n`ID | Key | Unit | Duration`\n\n💡 **ပုံစံနမူနာ:**\n• `F4AFA83F4F1577DE | XYZ-KEY-999 | 3 | d`")
     bot.reply_to(message, msg_text, parse_mode="Markdown")
 
-@bot.message_handler(func=lambda msg: user_states.get(msg.from_user.id) == 'waiting_for_key' and msg.text not in MENU_BUTTONS)
+@bot.message_handler(func=lambda msg: user_states.get(message.from_user.id) == 'waiting_for_key' and msg.text not in MENU_BUTTONS)
 def process_key_data(message):
     user_id = message.from_user.id
     parts = [p.strip() for p in message.text.split("|")]
@@ -447,39 +445,52 @@ def cmd_mykeys(message):
     for r in rows: res += f"• ID: `{r[0]}` -> Key: `{r[1]}`\n"
     bot.reply_to(message, res, parse_mode="Markdown")
 
-# 7. Edit Key
+# 7. Edit Key (အစ်ကို့စိတ်ကြိုက် Device ID ကို အခြေခံ၍ ကျန်တာများ ပြောင်းလဲသည့် Logic သစ်)
 @bot.message_handler(func=lambda msg: msg.text == "✏️ Edit Key" and is_reseller(msg.from_user.id))
 def cmd_editkey(message):
     user_states[message.from_user.id] = 'waiting_for_edit_data'
-    msg_text = ("✏️ ပြင်ဆင်လိုသော Key ပုံစံကို ပို့ပေးပါ-\n\n`ပြင်မည့်Key | IDသစ် | Unitသစ် | Durationသစ်`")
+    msg_text = ("✏️ **ပြင်ဆင်လိုသော အချက်အလက်ကို ပို့ပေးပါ-**\n\n"
+                "`ရှာမည့်DeviceID | Keyသစ် | Unitသစ် | Durationသစ်`\n\n"
+                "💡 **ပုံစံနမူနာ:**\n`F4AFA83F4F1577DE | NEW-KEY-888 | 5 | m`")
     bot.reply_to(message, msg_text, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda msg: user_states.get(msg.from_user.id) == 'waiting_for_edit_data' and msg.text not in MENU_BUTTONS)
 def process_edit_key(message):
     user_id = message.from_user.id
     parts = [p.strip() for p in message.text.split("|")]
-    if len(parts) != 4: return bot.reply_to(message, "❌ ပုံစံမမှန်ပါ။ ပြန်လည်စစ်ဆေးပါ။")
+    if len(parts) != 4: 
+        return bot.reply_to(message, "❌ ပုံစံမမှန်ပါ။ `DeviceID | Keyသစ် | Unitသစ် | Durationသစ်` အတိုင်း ပြန်လည်စစ်ဆေးပါ။")
+    
+    target_device_id = parts[0]
+    new_key = parts[1]
+    new_unit = parts[2]
+    new_duration = parts[3]
     
     pull_data_from_github()
     
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT added_by FROM auth_keys WHERE key_string = ?", (parts[0],))
-    result = cursor.fetchone()
-    conn.close()
-    owner_id = result[0] if result else None
-    if owner_id is None: return bot.reply_to(message, "❌ ဤ Key ကို ရှာမတွေ့ပါ။")
-    if owner_id != user_id and not is_admin(user_id): return bot.reply_to(message, "🚫 ပြင်ဆင်ခွင့်မရှိပါ။")
+    owner_id = get_key_owner_by_id(target_device_id)
+    if owner_id is None: 
+        return bot.reply_to(message, f"❌ ID `{target_device_id}` အား Database ထဲတွင် ရှာမတွေ့ပါ။")
+    
+    if owner_id != user_id and not is_admin(user_id): 
+        return bot.reply_to(message, "🚫 သင်သည် ဤ Key အား ပြင်ဆင်ခွင့်မရှိပါ။")
+        
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        cursor.execute("UPDATE auth_keys SET target_id=?, unit_val=?, duration_type=? WHERE key_string=?", (parts[1], parts[2], parts[3], parts[0]))
+        cursor.execute("""
+            UPDATE auth_keys 
+            SET key_string=?, unit_val=?, duration_type=? 
+            WHERE target_id=?
+        """, (new_key, new_unit, new_duration, target_device_id))
         conn.commit()
         conn.close()
-        bot.reply_to(message, "✏️ Key ကို ပြင်ဆင်ပြီးပါပြီ။ Cloud သို့ Update လုပ်နေသည်...")
+        
+        bot.reply_to(message, f"✏️ ID `{target_device_id}` ၏ အချက်အလက်များကို ပြင်ဆင်ပြီးပါပြီ။ Cloud သို့ Update လုပ်နေသည်...")
         sync_db_to_github()
         user_states[user_id] = None
-    except: bot.reply_to(message, "❌ ပြင်ဆင်မှု မှားယွင်းနေသည်။")
+    except Exception as e: 
+        bot.reply_to(message, f"❌ ပြင်ဆင်မှု မှားယွင်းနေပါသည် သို့မဟုတ် Key သစ်သည် ရှိပြီးသားဖြစ်နေသည်- {str(e)}")
 
 # 8. Delete Key
 @bot.message_handler(func=lambda msg: msg.text == "🗑 Delete Key" and is_reseller(msg.from_user.id))
@@ -487,7 +498,7 @@ def cmd_delete_key_trigger(message):
     user_states[message.from_user.id] = 'waiting_for_del_id'
     bot.reply_to(message, "🗑 ဖျက်လိုသော **Device ID** (ဥပမာ - `F4AFA83F4F1577DE`) ကို ပို့ပေးပါ-")
 
-@bot.message_handler(func=lambda msg: user_states.get(msg.from_user.id) == 'waiting_for_del_id' and msg.text not in MENU_BUTTONS)
+@bot.message_handler(func=lambda msg: user_states.get(message.from_user.id) == 'waiting_for_del_id' and msg.text not in MENU_BUTTONS)
 def process_delete_key_by_id(message):
     user_id = message.from_user.id
     id_to_del = message.text.strip()
