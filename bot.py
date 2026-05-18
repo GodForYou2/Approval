@@ -409,6 +409,9 @@ def admin_view_all_keys(message):
     bot.reply_to(message, res, parse_mode="Markdown")
 
 # 5. Add Key
+# ==========================================
+# 5. Add Key (ပုံစံမှန်လျှင် ဘယ်လိုဖြစ်ဖြစ် ဒေတာ ဇွတ်ထည့်မည့်စနစ်)
+# ==========================================
 @bot.message_handler(func=lambda msg: msg.text == "➕ Add Key" and is_reseller(msg.from_user.id))
 def cmd_addkey(message):
     user_states[message.from_user.id] = 'waiting_for_key'
@@ -419,17 +422,34 @@ def cmd_addkey(message):
 def process_key_data(message):
     user_id = message.from_user.id
     parts = [p.strip() for p in message.text.split("|")]
-    if len(parts) != 4: return bot.reply_to(message, "❌ ပုံစံမမှန်ပါ။ `ID | Key | Unit | Duration` အတိုင်း ပြန်လည်ပေးပို့ပါ။")
+    
+    # ၁။ ပုံစံ (Format) မှန်မမှန်ကိုပဲ အဓိက စစ်ဆေးပါသည်
+    if len(parts) != 4: 
+        return bot.reply_to(message, "❌ ပုံစံမမှန်ပါ။ `ID | Key | Unit | Duration` အတိုင်း ပြန်လည်ပေးပို့ပါ။")
+    
     try:
-        conn = sqlite3.connect(DB_FILE)
+        # ၂။ Timeout ပေးပြီး ဒေတာကို ဇွတ်ထည့်ခိုင်းပါမည် (INSERT OR IGNORE က ဒေတာထပ်နေလဲ Error မအော်ဘဲ ပေးဝင်စေပါသည်)
+        conn = sqlite3.connect(DB_FILE, timeout=10)
         cursor = conn.cursor()
-        cursor.execute("INSERT INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by) VALUES (?, ?, ?, ?, ?)", (parts[0], parts[1], parts[2], parts[3], user_id))
+        cursor.execute(
+            "INSERT OR IGNORE INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by) VALUES (?, ?, ?, ?, ?)", 
+            (parts[0], parts[1], parts[2], parts[3], user_id)
+        )
         conn.commit()
         conn.close()
+        
         bot.reply_to(message, "✅ Key အချက်အလက် သိမ်းဆည်းပြီးပါပြီ။ Cloud သို့ လှမ်းပို့နေပါသည်...")
+        
+        # ၃။ Database ပိတ်ပြီးမှ GitHub Cloud ပေါ် လှမ်းတင်ခိုင်းပါသည်
         sync_db_to_github()
+        
+    except Exception as e:
+        # ဘာ error ပဲတက်တက် အစ်ကို့ဆီ တန်းပြပေးမည့်အပိုင်း
+        bot.reply_to(message, f"❌ စနစ်အတွင်း အမှားအယွင်း ဖြစ်ပွားခဲ့သည်- {str(e)}")
+        
+    finally:
+        # အဆင့်အားလုံးပြီးရင် State ကို အမြဲ ပုံမှန်အတိုင်း ပြန်ပြောင်းပါသည်
         user_states[user_id] = None
-    except: bot.reply_to(message, "❌ ဤ Key သည် Database ထဲမှာ ရှိနှင့်နေပြီးသား ဖြစ်ပါသည်။")
 
 # 6. View My Keys
 @bot.message_handler(func=lambda msg: msg.text == "🔑 My Keys" and is_reseller(msg.from_user.id))
