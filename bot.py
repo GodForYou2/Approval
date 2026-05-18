@@ -64,8 +64,9 @@ def pull_data_from_github():
                 if " | " in line:
                     parts = [p.strip() for p in line.split("|")]
                     if len(parts) == 4:
+                        # Restore လုပ်ချိန်တွင်လည်း ဒေတာငြိပြီး မဝင်တာမျိုးမဖြစ်အောင် INSERT INTO သုံးသည်
                         cursor.execute("""
-                            INSERT OR IGNORE INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by) 
+                            INSERT INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by) 
                             VALUES (?, ?, ?, ?, ?)
                         """, (parts[0], parts[1], parts[2], parts[3], ADMIN_ID))
             conn.commit()
@@ -93,7 +94,6 @@ def pull_data_from_github():
             conn = sqlite3.connect(DB_FILE)
             cursor = conn.cursor()
             
-            # ဒေတာဟောင်း ရှင်းထုတ်သည်
             cursor.execute("DELETE FROM users WHERE tg_id != ?", (ADMIN_ID,))
             
             lines = file_content_resellers.split("\n")
@@ -110,7 +110,6 @@ def pull_data_from_github():
                             user_role = 'admin' if target_tg_id == ADMIN_ID else 'reseller'
                             cursor.execute("INSERT OR REPLACE INTO users (tg_id, username, role) VALUES (?, ?, ?)", (target_tg_id, parts[1], user_role))
             
-            # Main Admin ကို Database ထဲတွင် အမြဲရှိနေအောင် သေချာ ထည့်သွင်းထားမည်
             cursor.execute("INSERT OR REPLACE INTO users (tg_id, username, role) VALUES (?, ?, 'admin')", (ADMIN_ID, 'Main_Admin'))
             conn.commit()
             conn.close()
@@ -119,14 +118,15 @@ def pull_data_from_github():
             print("[-] Error: Could not fetch resellers data from GitHub.")
     except Exception as e: print(f"[-] Resellers Pull Exception: {str(e)}")
 
-# --- Database Setup ---
+# --- Database Setup (ID ကိုသာ UNIQUE သတ်မှတ်ပြီး Key မှ UNIQUE ကို ဖြုတ်ချထားပါသည်) ---
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+    # 🌟 ပြင်ဆင်ချက်: target_id နေရာတွင် UNIQUE ခံလိုက်ပြီး key_string မှ UNIQUE ကို ဖျက်ပစ်လိုက်ပါပြီ
     cursor.execute('''CREATE TABLE IF NOT EXISTS auth_keys (
         id INTEGER PRIMARY KEY AUTOINCREMENT, 
-        target_id TEXT,
-        key_string TEXT UNIQUE, 
+        target_id TEXT UNIQUE,
+        key_string TEXT, 
         unit_val TEXT, 
         duration_type TEXT, 
         added_by INTEGER
@@ -138,20 +138,6 @@ def init_db():
     )''')
     cursor.execute("INSERT OR IGNORE INTO users (tg_id, username, role) VALUES (?, ?, ?)", (ADMIN_ID, 'Main_Admin', 'admin'))
     conn.commit()
-
-    cursor.execute("PRAGMA table_info(auth_keys)")
-    columns = [col[1] for col in cursor.fetchall()]
-    if 'target_id' not in columns:
-        try:
-            cursor.execute("ALTER TABLE auth_keys ADD COLUMN target_id TEXT")
-            conn.commit()
-        except: pass
-    if 'unit_val' not in columns:
-        try:
-            cursor.execute("ALTER TABLE auth_keys ADD COLUMN unit_val TEXT")
-            cursor.execute("ALTER TABLE auth_keys ADD COLUMN duration_type TEXT")
-            conn.commit()
-        except: pass
     conn.close()
 
 init_db()
@@ -289,7 +275,7 @@ def process_reseller_id(message):
         user_states[admin_id] = 'waiting_for_reseller_name'
         bot.reply_to(message, f"✍️ ID `{reseller_id}` အတွက် သတ်မှတ်မည့် **Reseller နာမည်** ကို ပို့ပေးပါ-", parse_mode="Markdown")
     except: 
-        bot.reply_to(message, "❌ မှားယွင်းနေပါသည်။ Telegram ID (ဂဏန်းသီးသန့်) ကိုသာ ပို့ပေးပါ။")
+        bot.reply_to(message, "❌ ဇယားမှားယွင်းနေပါသည်။ Telegram ID (ဂဏန်းသီးသန့်) ကိုသာ ပို့ပေးပါ။")
 
 @bot.message_handler(func=lambda msg: user_states.get(msg.from_user.id) == 'waiting_for_reseller_name' and msg.text not in MENU_BUTTONS)
 def process_reseller_name(message):
@@ -318,7 +304,7 @@ def process_reseller_name(message):
     user_states[admin_id] = None
     if admin_id in reseller_temp_data: del reseller_temp_data[admin_id]
 
-# 2. Reseller List (Special Character Error များကို ကျော်လွှားရန် HTML စနစ်သို့ ပြောင်းလဲထားသည်)
+# 2. Reseller List
 @bot.message_handler(func=lambda msg: msg.text == "📊 Reseller List")
 def admin_view_resellers(message):
     user_id = message.from_user.id
@@ -339,11 +325,9 @@ def admin_view_resellers(message):
         if not rows: 
             return bot.reply_to(message, "📭 Database ထဲတွင် အသုံးပြုသူစာရင်း လုံးဝမရှိသေးပါ။")
         
-        # HTML formatting သုံးပြီး Telegram စာသားပုံစံ ပြင်ဆင်သည်
         res = f"👥 <b>အသုံးပြုသူ စာရင်းစုစုပေါင်း:</b> {len(rows)} ဦး\n\n"
         for r in rows:
             role_tag = "👑 Admin" if r[2] == 'admin' else "👤 Reseller"
-            # နာမည်ထဲတွင် 特殊符号များ ပါခဲ့ပါက ကာကွယ်ရန် HTML escape အနည်းငယ် သုံးသည်
             clean_name = str(r[1]).replace("<", "&lt;").replace(">", "&gt;")
             res += f"• <b>{clean_name}</b> (ID: {r[0]}) - [{role_tag}]\n"
             
@@ -408,9 +392,8 @@ def admin_view_all_keys(message):
         res += f"🆔 `{r[0]}` | 🔑 `{r[1]}` | {r[2]} | {r[3]} (By: *{owner_name}*)\n"
     bot.reply_to(message, res, parse_mode="Markdown")
 
-# 5. Add Key
 # ==========================================
-# 5. Add Key (ပုံစံမှန်လျှင် ဘယ်လိုဖြစ်ဖြစ် ဒေတာ ဇွတ်ထည့်မည့်စနစ်)
+# 5. Add Key (🌟 ပြင်ဆင်ပြီးသား အပိုင်း)
 # ==========================================
 @bot.message_handler(func=lambda msg: msg.text == "➕ Add Key" and is_reseller(msg.from_user.id))
 def cmd_addkey(message):
@@ -423,16 +406,28 @@ def process_key_data(message):
     user_id = message.from_user.id
     parts = [p.strip() for p in message.text.split("|")]
     
-    # ၁။ ပုံစံ (Format) မှန်မမှန်ကိုပဲ အဓိက စစ်ဆေးပါသည်
     if len(parts) != 4: 
         return bot.reply_to(message, "❌ ပုံစံမမှန်ပါ။ `ID | Key | Unit | Duration` အတိုင်း ပြန်လည်ပေးပို့ပါ။")
     
+    target_id = parts[0]
+    
     try:
-        # ၂။ Timeout ပေးပြီး ဒေတာကို ဇွတ်ထည့်ခိုင်းပါမည် (INSERT OR IGNORE က ဒေတာထပ်နေလဲ Error မအော်ဘဲ ပေးဝင်စေပါသည်)
         conn = sqlite3.connect(DB_FILE, timeout=10)
         cursor = conn.cursor()
+        
+        # ၁။ ပို့လိုက်တဲ့ Device ID က database ထဲမှာ ရှိပြီးသားလား အရင်စစ်ဆေးသည်
+        cursor.execute("SELECT 1 FROM auth_keys WHERE target_id = ?", (target_id,))
+        existing_id = cursor.fetchone()
+        
+        if existing_id:
+            # Device ID တူနေရင် စနစ်ထဲမှာ ရှိပြီးသားဖြစ်လို့ လုံးဝအထည့်မခံဘဲ ပိတ်ထုတ်မည်
+            conn.close()
+            user_states[user_id] = None
+            return bot.reply_to(message, "❌ ဤ Device ID သည် Database ထဲတွင် ရှိနှင့်နေပြီးသား ဖြစ်သဖြင့် ထပ်ထည့်၍မရပါ။")
+            
+        # ၂။ Device ID မတူရင် (အသစ်ဖြစ်ရင်) Key ချင်းတူနေပါစေ INSERT အတင်းလုပ်ခိုင်းမည်
         cursor.execute(
-            "INSERT OR IGNORE INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by) VALUES (?, ?, ?, ?, ?)", 
+            "INSERT INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by) VALUES (?, ?, ?, ?, ?)", 
             (parts[0], parts[1], parts[2], parts[3], user_id)
         )
         conn.commit()
@@ -440,15 +435,13 @@ def process_key_data(message):
         
         bot.reply_to(message, "✅ Key အချက်အလက် သိမ်းဆည်းပြီးပါပြီ။ Cloud သို့ လှမ်းပို့နေပါသည်...")
         
-        # ၃။ Database ပိတ်ပြီးမှ GitHub Cloud ပေါ် လှမ်းတင်ခိုင်းပါသည်
+        # ၃။ Cloud ပေါ်သို့ Sync လှမ်းလုပ်ခိုင်းသည်
         sync_db_to_github()
         
     except Exception as e:
-        # ဘာ error ပဲတက်တက် အစ်ကို့ဆီ တန်းပြပေးမည့်အပိုင်း
         bot.reply_to(message, f"❌ စနစ်အတွင်း အမှားအယွင်း ဖြစ်ပွားခဲ့သည်- {str(e)}")
         
     finally:
-        # အဆင့်အားလုံးပြီးရင် State ကို အမြဲ ပုံမှန်အတိုင်း ပြန်ပြောင်းပါသည်
         user_states[user_id] = None
 
 # 6. View My Keys
@@ -467,7 +460,7 @@ def cmd_mykeys(message):
     for r in rows: res += f"• ID: `{r[0]}` -> Key: `{r[1]}`\n"
     bot.reply_to(message, res, parse_mode="Markdown")
 
-# 7. Edit Key (Device ID အား အခြေခံ၍ ကျန်ရှိသော အချက်အလက် ၃ ခုလုံး ပြင်ဆင်သည့်စနစ်)
+# 7. Edit Key
 @bot.message_handler(func=lambda msg: msg.text == "✏️ Edit Key" and is_reseller(msg.from_user.id))
 def cmd_editkey(message):
     user_states[message.from_user.id] = 'waiting_for_edit_data'
@@ -481,17 +474,16 @@ def process_edit_key(message):
     user_id = message.from_user.id
     parts = [p.strip() for p in message.text.split("|")]
     if len(parts) != 4: 
-        user_states[user_id] = None # ပုံစံမမှန်ရင် State ပိတ်ပြီး ပြန်ထွက်သည်
+        user_states[user_id] = None
         return bot.reply_to(message, "❌ ပုံစံမမှန်ပါ။ `DeviceID | Keyသစ် | Unitသစ် | Durationသစ်` အတိုင်း ပြန်လည်စစ်ဆေးပါ။")
     
-    target_device_id = parts[0]  # ရှာဖွေမည့် Device ID
-    new_key = parts[1]           # အစားထိုးမည့် Key သစ်
-    new_unit = parts[2]          # အစားထိုးမည့် Unit သစ်
-    new_duration = parts[3]      # အစားထိုးမည့် Duration သစ်
+    target_device_id = parts[0]  
+    new_key = parts[1]           
+    new_unit = parts[2]          
+    new_duration = parts[3]      
     
     pull_data_from_github()
     
-    # ဤ Device ID ကို မည်သူက ထည့်သွင်းခဲ့သလဲ အရင်ရှာဖွေစစ်ဆေးသည်
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("SELECT added_by FROM auth_keys WHERE target_id = ?", (target_device_id,))
@@ -509,7 +501,6 @@ def process_edit_key(message):
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        # ရှေ့ဆုံးက Device ID ကို အခြေခံပြီး ကျန်တဲ့ Key, Unit, Duration သုံးခုလုံးကို လိုက်ပြင်သည့် Logic
         cursor.execute("""
             UPDATE auth_keys 
             SET key_string=?, unit_val=?, duration_type=? 
