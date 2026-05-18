@@ -63,10 +63,17 @@ def pull_data_from_github():
             for line in file_content_keys.split("\n"):
                 if " | " in line:
                     parts = [p.strip() for p in line.split("|")]
-                    if len(parts) == 4:
-                        # Restore လုပ်ချိန်တွင်လည်း ဒေတာငြိပြီး မဝင်တာမျိုးမဖြစ်အောင် INSERT INTO သုံးသည်
+                    # ပြင်ဆင်ချက်: လိုင်းထဲမှာ ပိုင်ရှင် ID ပါခဲ့ရင် (၅ ကွက်ရှိရင်) အဲဒီ ID ကိုပါ ပြန်ဆွဲထည့်မည်
+                    if len(parts) == 5:
+                        try: owner_id = int(parts[4])
+                        except: owner_id = ADMIN_ID
                         cursor.execute("""
-                            INSERT INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by) 
+                            INSERT OR IGNORE INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by) 
+                            VALUES (?, ?, ?, ?, ?)
+                        """, (parts[0], parts[1], parts[2], parts[3], owner_id))
+                    elif len(parts) == 4:
+                        cursor.execute("""
+                            INSERT OR IGNORE INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by) 
                             VALUES (?, ?, ?, ?, ?)
                         """, (parts[0], parts[1], parts[2], parts[3], ADMIN_ID))
             conn.commit()
@@ -122,7 +129,6 @@ def pull_data_from_github():
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    # 🌟 ပြင်ဆင်ချက်: target_id နေရာတွင် UNIQUE ခံလိုက်ပြီး key_string မှ UNIQUE ကို ဖျက်ပစ်လိုက်ပါပြီ
     cursor.execute('''CREATE TABLE IF NOT EXISTS auth_keys (
         id INTEGER PRIMARY KEY AUTOINCREMENT, 
         target_id TEXT UNIQUE,
@@ -143,12 +149,12 @@ def init_db():
 init_db()
 pull_data_from_github()
 
-# --- GitHub Auto Sync Functions ---
+# --- GitHub Auto Sync Functions (Added_By ID ပါ Cloud ပေါ် တွဲတင်မည့်စနစ်) ---
 def sync_db_to_github():
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        cursor.execute("SELECT target_id, key_string, unit_val, duration_type FROM auth_keys")
+        cursor.execute("SELECT target_id, key_string, unit_val, duration_type, added_by FROM auth_keys")
         rows = cursor.fetchall()
         conn.close()
         
@@ -158,7 +164,9 @@ def sync_db_to_github():
             kstr = row[1] if row[1] else "NoKey"
             uval = row[2] if row[2] else "0"
             dtype = row[3] if row[3] else "d"
-            content_lines.append(f"{tid} | {kstr} | {uval} | {dtype}")
+            owner = row[4] if row[4] else str(ADMIN_ID)
+            # Text file ထဲတွင် ပိုင်ရှင် ID အစစ်ပါ ထည့်သွင်းသိမ်းခိုင်းလိုက်ခြင်းဖြစ်သည်
+            content_lines.append(f"{tid} | {kstr} | {uval} | {dtype} | {owner}")
             
         file_content = "\n".join(content_lines)
         url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
@@ -167,7 +175,7 @@ def sync_db_to_github():
         res = requests.get(url, headers=headers)
         sha = res.json().get('sha') if res.status_code == 200 else None
         payload = {
-            "message": "Bot Auto Sync Keys",
+            "message": "Bot Auto Sync Keys with Owner ID",
             "content": base64.b64encode(file_content.encode('utf-8')).decode('utf-8')
         }
         if sha: payload["sha"] = sha
@@ -275,7 +283,7 @@ def process_reseller_id(message):
         user_states[admin_id] = 'waiting_for_reseller_name'
         bot.reply_to(message, f"✍️ ID `{reseller_id}` အတွက် သတ်မှတ်မည့် **Reseller နာမည်** ကို ပို့ပေးပါ-", parse_mode="Markdown")
     except: 
-        bot.reply_to(message, "❌ ဇယားမှားယွင်းနေပါသည်။ Telegram ID (ဂဏန်းသီးသန့်) ကိုသာ ပို့ပေးပါ။")
+        bot.reply_to(message, "❌ မှားယွင်းနေပါသည်။ Telegram ID (ဂဏန်းသီးသန့်) ကိုသာ ပို့ပေးပါ။")
 
 @bot.message_handler(func=lambda msg: user_states.get(msg.from_user.id) == 'waiting_for_reseller_name' and msg.text not in MENU_BUTTONS)
 def process_reseller_name(message):
@@ -389,12 +397,10 @@ def admin_view_all_keys(message):
     res = f"🌐 **Database အတွင်းရှိ Key အားလုံးစာရင်း ({len(rows)} ခု):**\n\n"
     for r in rows: 
         owner_name = get_user_name(r[4])
-        res += f"🆔 `{r[0]}` | 🔑 `{r[1]}` | {r[2]} | {r[3]} (By: *{owner_name}*)\n"
+        res += f"🆔 `{r[0]}` | 🔑 `{r[1]}` | {r[2]} | {r[3]} (By: *{owner_name}* - `{r[4]}`)\n"
     bot.reply_to(message, res, parse_mode="Markdown")
 
-# ==========================================
-# 5. Add Key (🌟 ပြင်ဆင်ပြီးသား အပိုင်း)
-# ==========================================
+# 5. Add Key
 @bot.message_handler(func=lambda msg: msg.text == "➕ Add Key" and is_reseller(msg.from_user.id))
 def cmd_addkey(message):
     user_states[message.from_user.id] = 'waiting_for_key'
@@ -415,17 +421,16 @@ def process_key_data(message):
         conn = sqlite3.connect(DB_FILE, timeout=10)
         cursor = conn.cursor()
         
-        # ၁။ ပို့လိုက်တဲ့ Device ID က database ထဲမှာ ရှိပြီးသားလား အရင်စစ်ဆေးသည်
+        # Device ID ရှိပြီးသားလား အရင်စစ်ဆေးချက်
         cursor.execute("SELECT 1 FROM auth_keys WHERE target_id = ?", (target_id,))
         existing_id = cursor.fetchone()
         
         if existing_id:
-            # Device ID တူနေရင် စနစ်ထဲမှာ ရှိပြီးသားဖြစ်လို့ လုံးဝအထည့်မခံဘဲ ပိတ်ထုတ်မည်
             conn.close()
             user_states[user_id] = None
             return bot.reply_to(message, "❌ ဤ Device ID သည် Database ထဲတွင် ရှိနှင့်နေပြီးသား ဖြစ်သဖြင့် ထပ်ထည့်၍မရပါ။")
             
-        # ၂။ Device ID မတူရင် (အသစ်ဖြစ်ရင်) Key ချင်းတူနေပါစေ INSERT အတင်းလုပ်ခိုင်းမည်
+        # ID မတူလျှင် Key မည်မျှတူစေကာမူ ပိုင်ရှင် ID အစစ်နှင့်အတူ ဇွတ်ထည့်ခိုင်းသည်
         cursor.execute(
             "INSERT INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by) VALUES (?, ?, ?, ?, ?)", 
             (parts[0], parts[1], parts[2], parts[3], user_id)
@@ -435,7 +440,7 @@ def process_key_data(message):
         
         bot.reply_to(message, "✅ Key အချက်အလက် သိမ်းဆည်းပြီးပါပြီ။ Cloud သို့ လှမ်းပို့နေပါသည်...")
         
-        # ၃။ Cloud ပေါ်သို့ Sync လှမ်းလုပ်ခိုင်းသည်
+        # Cloud ပေါ်သို့ ဒေတာတွဲတင်ရန် Sync ခေါ်ခြင်း
         sync_db_to_github()
         
     except Exception as e:
@@ -452,12 +457,17 @@ def cmd_mykeys(message):
     
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("SELECT target_id, key_string FROM auth_keys WHERE added_by = ?", (message.from_user.id,))
+    # 🌟 ပြင်ဆင်ချက်: added_by ပါယူပြီး မေးမြန်းသူ Reseller ID တစ်ခုတည်းစာပဲ ကွက်တိဆွဲထုတ်ပြသည်
+    cursor.execute("SELECT target_id, key_string, added_by FROM auth_keys WHERE added_by = ?", (message.from_user.id,))
     rows = cursor.fetchall()
     conn.close()
-    if not rows: return bot.reply_to(message, "📭 သင်ထည့်သွင်းထားသော Key မရှိသေးပါ။")
+    
+    if not rows: 
+        return bot.reply_to(message, "📭 သင်ထည့်သွင်းထားသော Key မရှိသေးပါ။")
+        
     res = "🔑 **သင်ထည့်သွင်းထားသော Key များ:**\n\n"
-    for r in rows: res += f"• ID: `{r[0]}` -> Key: `{r[1]}`\n"
+    for r in rows: 
+        res += f"• ID: `{r[0]}` -> Key: `{r[1]}` (ထည့်သူ ID: `{r[2]}`)\n"
     bot.reply_to(message, res, parse_mode="Markdown")
 
 # 7. Edit Key
