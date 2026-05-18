@@ -22,7 +22,7 @@ def run_web_server():
 # ================= [ CONFIGURATION ] =================
 BOT_TOKEN = "8855766112:AAFrm_h0BnN8ADOruSFasB0HKUOUum09N_4"
 ADMIN_ID = 8701781484
-DAILY_LIMIT = 5  # 🌟 ရီဆဲလာတစ်ယောက် တစ်ရက်ထည့်နိုင်သော ကုတ်အကန့်အသတ် (၅ ခု)
+DEFAULT_LIMIT = 5  # 🌟 ကုဒ်ဟောင်းမှ ဒေတာများအတွက် အော်တိုသတ်မှတ်ပေးမည့် Limit ဟောင်း
 
 GITHUB_TOKEN = os.getenv("GH_TOKEN") if os.getenv("GH_TOKEN") else "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"
 REPO_OWNER = "GodForYou2" 
@@ -65,8 +65,6 @@ def pull_data_from_github():
             for line in file_content_keys.split("\n"):
                 if " | " in line:
                     parts = [p.strip() for p in line.split("|")]
-                    
-                    # ပြင်ဆင်ချက်: လိုင်းထဲမှာ ပိုင်ရှင် ID နှင့် ရက်စွဲပါခဲ့လျှင် (၆ ကွက်ရှိလျှင်) သို့မဟုတ် (၅ ကွက်ရှိလျှင်) ခွဲခြားသိမ်းဆည်းခြင်း
                     created_date = datetime.now().strftime("%Y-%m-%d")
                     if len(parts) == 6:
                         try: owner_id = int(parts[4])
@@ -122,14 +120,23 @@ def pull_data_from_github():
                 
                 if "|" in line:
                     parts = [p.strip() for p in line.split("|") if p.strip()]
-                    if len(parts) == 2:
+                    # 🌟 ရီဆဲလာဖိုင်ထဲတွင် Limit ပါဝင်ခဲ့လျှင် (၃ ကွက်ရှိလျှင်) ၎င်း Limit ကိုပါ ယူမည်
+                    if len(parts) == 3:
                         clean_id = parts[0].replace(" ", "")
                         if clean_id.isdigit():
                             target_tg_id = int(clean_id)
                             user_role = 'admin' if target_tg_id == ADMIN_ID else 'reseller'
-                            cursor.execute("INSERT OR REPLACE INTO users (tg_id, username, role) VALUES (?, ?, ?)", (target_tg_id, parts[1], user_role))
+                            try: r_limit = int(parts[2])
+                            except: r_limit = DEFAULT_LIMIT
+                            cursor.execute("INSERT OR REPLACE INTO users (tg_id, username, role, daily_limit) VALUES (?, ?, ?, ?)", (target_tg_id, parts[1], user_role, r_limit))
+                    elif len(parts) == 2:
+                        clean_id = parts[0].replace(" ", "")
+                        if clean_id.isdigit():
+                            target_tg_id = int(clean_id)
+                            user_role = 'admin' if target_tg_id == ADMIN_ID else 'reseller'
+                            cursor.execute("INSERT OR REPLACE INTO users (tg_id, username, role, daily_limit) VALUES (?, ?, ?, ?)", (target_tg_id, parts[1], user_role, DEFAULT_LIMIT))
             
-            cursor.execute("INSERT OR REPLACE INTO users (tg_id, username, role) VALUES (?, ?, 'admin')", (ADMIN_ID, 'Main_Admin'))
+            cursor.execute("INSERT OR REPLACE INTO users (tg_id, username, role, daily_limit) VALUES (?, ?, 'admin', 999999)", (ADMIN_ID, 'Main_Admin'))
             conn.commit()
             conn.close()
             print("[+] Success: Resellers database updated smoothly.")
@@ -137,7 +144,7 @@ def pull_data_from_github():
             print("[-] Error: Could not fetch resellers data from GitHub.")
     except Exception as e: print(f"[-] Resellers Pull Exception: {str(e)}")
 
-# --- Database Setup (ရက်စွဲသိမ်းရန် created_at ကော်လံအသစ် ထည့်သွင်းထားပါသည်) ---
+# --- Database Setup (ရီဆဲလာအလိုက် Limit ကန့်သတ်ရန် daily_limit ကော်လံ ထည့်သွင်းထားပါသည်) ---
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -153,15 +160,16 @@ def init_db():
     cursor.execute('''CREATE TABLE IF NOT EXISTS users (
         tg_id INTEGER PRIMARY KEY, 
         username TEXT, 
-        role TEXT
+        role TEXT,
+        daily_limit INTEGER DEFAULT 5
     )''')
-    cursor.execute("INSERT OR IGNORE INTO users (tg_id, username, role) VALUES (?, ?, ?)", (ADMIN_ID, 'Main_Admin', 'admin'))
+    cursor.execute("INSERT OR IGNORE INTO users (tg_id, username, role, daily_limit) VALUES (?, ?, ?, ?)", (ADMIN_ID, 'Main_Admin', 'admin', 999999))
     
     # 🌟 အဟောင်းထဲမှာ ကော်လံမပါခဲ့ရင် Error မတက်အောင် ကာကွယ်ခြင်း
-    try:
-        cursor.execute("ALTER TABLE auth_keys ADD COLUMN created_at TEXT")
-    except:
-        pass
+    try: cursor.execute("ALTER TABLE auth_keys ADD COLUMN created_at TEXT")
+    except: pass
+    try: cursor.execute("ALTER TABLE users ADD COLUMN daily_limit INTEGER DEFAULT 5")
+    except: pass
         
     conn.commit()
     conn.close()
@@ -169,7 +177,7 @@ def init_db():
 init_db()
 pull_data_from_github()
 
-# --- GitHub Auto Sync Functions (Added_By ID နှင့် ရက်စွဲပါ Cloud ပေါ် တင်မည့်စနစ်) ---
+# --- GitHub Auto Sync Functions ---
 def sync_db_to_github():
     try:
         conn = sqlite3.connect(DB_FILE)
@@ -186,7 +194,6 @@ def sync_db_to_github():
             dtype = row[3] if row[3] else "d"
             owner = row[4] if row[4] else str(ADMIN_ID)
             cdate = row[5] if row[5] else datetime.now().strftime("%Y-%m-%d")
-            # Text file ထဲမှာ ရက်စွဲပါ တစ်ပါတည်း ထပ်တိုးသိမ်းဆည်းပါသည်
             content_lines.append(f"{tid} | {kstr} | {uval} | {dtype} | {owner} | {cdate}")
             
         file_content = "\n".join(content_lines)
@@ -210,13 +217,14 @@ def sync_resellers_to_github():
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        cursor.execute("SELECT tg_id, username FROM users")
+        cursor.execute("SELECT tg_id, username, daily_limit FROM users")
         rows = cursor.fetchall()
         conn.close()
         
         content_lines = []
         for row in rows:
-            content_lines.append(f"{row[0]} | {row[1]}")
+            # 🌟 GitHub ပေါ်မှာပါ ရီဆဲလာတစ်ယောက်ချင်းစီရဲ့ Limit ကို တွဲမှတ်ထားခိုင်းခြင်းဖြစ်သည်
+            content_lines.append(f"{row[0]} | {row[1]} | {row[2]}")
             
         file_content = "\n".join(content_lines)
         url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{RESELLER_FILE_PATH}"
@@ -225,7 +233,7 @@ def sync_resellers_to_github():
         res = requests.get(url, headers=headers)
         sha = res.json().get('sha') if res.status_code == 200 else None
         payload = {
-            "message": "Bot Auto Sync Resellers List",
+            "message": "Bot Auto Sync Resellers List with custom limits",
             "content": base64.b64encode(file_content.encode('utf-8')).decode('utf-8')
         }
         if sha: payload["sha"] = sha
@@ -265,7 +273,16 @@ def get_user_name(user_id):
     conn.close()
     return res[0] if res else f"Unknown ({user_id})"
 
-# 🌟 Reseller တစ်ယောက်ချင်းစီ ယနေ့ထည့်ထားသော Key အရေအတွက်ကို စစ်ဆေးသည့် Function
+# 🌟 ရီဆဲလာတစ်ယောက်ချင်းစီရဲ့ ကိုယ်ပိုင် Daily Limit အား ဒေတာဘေ့စ်မှ ထုတ်ယူခြင်း
+def get_reseller_daily_limit(user_id):
+    if user_id == ADMIN_ID: return 999999
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT daily_limit FROM users WHERE tg_id = ?", (user_id,))
+    res = cursor.fetchone()
+    conn.close()
+    return res[0] if res else DEFAULT_LIMIT
+
 def get_today_added_count(user_id):
     today_str = datetime.now().strftime("%Y-%m-%d")
     conn = sqlite3.connect(DB_FILE)
@@ -299,7 +316,7 @@ def cmd_start(message):
         return
     bot.send_message(message.chat.id, "👋 မင်္ဂလာပါ! အောက်ပါ Menu ခလုတ်များကို အသုံးပြုနိုင်ပါပြီ။", reply_markup=get_main_keyboard(user_id))
 
-# 1. Create Reseller
+# 1. Create Reseller (ပုံစံသစ်: Limit ပါ တစ်ခါတည်း သတ်မှတ်ခိုင်းခြင်း)
 @bot.message_handler(func=lambda msg: msg.text == "👤 Create Reseller" and is_admin(msg.from_user.id))
 def admin_create_reseller(message):
     user_states[message.from_user.id] = 'waiting_for_reseller_id'
@@ -310,7 +327,7 @@ def process_reseller_id(message):
     admin_id = message.from_user.id
     try:
         reseller_id = int(message.text.strip())
-        reseller_temp_data[admin_id] = reseller_id
+        reseller_temp_data[admin_id] = {'id': reseller_id}
         user_states[admin_id] = 'waiting_for_reseller_name'
         bot.reply_to(message, f"✍️ ID `{reseller_id}` အတွက် သတ်မှတ်မည့် **Reseller နာမည်** ကို ပို့ပေးပါ-", parse_mode="Markdown")
     except: 
@@ -320,30 +337,47 @@ def process_reseller_id(message):
 def process_reseller_name(message):
     admin_id = message.from_user.id
     reseller_name = message.text.strip()
-    reseller_id = reseller_temp_data.get(admin_id)
-
-    if not reseller_id:
-        bot.reply_to(message, "❌ အချိန်လွန်သွားပါပြီ။ လူသစ်ပြန်ဆောက်ပေးပါ။")
+    
+    if admin_id not in reseller_temp_data:
+        bot.reply_to(message, "❌ အချိန်လွန်သွားပါပြီ။ အစမှ ပြန်ဆောက်ပေးပါ။")
         user_states[admin_id] = None
         return
 
+    reseller_temp_data[admin_id]['name'] = reseller_name
+    user_states[admin_id] = 'waiting_for_reseller_limit'
+    bot.reply_to(message, f"📊 နာမည် `_{reseller_name}_` အတွက် တစ်ရက်လျှင် ထည့်သွင်းခွင့်ပြုမည့် **Key အရေအတွက် အကန့်အသတ် (Limit)** ကို ဂဏန်းသီးသန့် (ဥပမာ- `5` သို့မဟုတ် `10`) ပို့ပေးပါ-", parse_mode="Markdown")
+
+@bot.message_handler(func=lambda msg: user_states.get(msg.from_user.id) == 'waiting_for_reseller_limit' and msg.text not in MENU_BUTTONS)
+def process_reseller_limit(message):
+    admin_id = message.from_user.id
+    
+    if admin_id not in reseller_temp_data or 'id' not in reseller_temp_data[admin_id]:
+        bot.reply_to(message, "❌ အချက်အလက် မှားယွင်းသွားပါပြီ။ လူသစ်ပြန်ဆောက်ပေးပါ။")
+        user_states[admin_id] = None
+        return
+        
     try:
+        r_limit = int(message.text.strip())
+        reseller_id = reseller_temp_data[admin_id]['id']
+        reseller_name = reseller_temp_data[admin_id]['name']
+        
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        cursor.execute("INSERT OR REPLACE INTO users (tg_id, username, role) VALUES (?, ?, 'reseller')", (reseller_id, reseller_name))
+        cursor.execute("INSERT OR REPLACE INTO users (tg_id, username, role, daily_limit) VALUES (?, ?, 'reseller', ?)", (reseller_id, reseller_name, r_limit))
         conn.commit()
         conn.close()
         
-        bot.reply_to(message, f"✅ **အောင်မြင်ပါသည်!**\n👤 နာမည်: `{reseller_name}`\n🆔 ID: `{reseller_id}` အား Reseller ခန့်အပ်ပြီးပါပြီ။ Cloud သို့ အော်တိုသိမ်းဆည်းနေပါသည်...", parse_mode="Markdown")
+        bot.reply_to(message, f"✅ **အောင်မြင်ပါသည်!**\n👤 နာမည်: `{reseller_name}`\n🆔 ID: `{reseller_id}`\n📊 Daily Limit: `{r_limit} ခု` အား သတ်မှတ်ပြီးပါပြီ။ Cloud သို့ သိမ်းဆည်းနေပါသည်...", parse_mode="Markdown")
         sync_resellers_to_github()
         
-    except Exception as e:
-        bot.reply_to(message, f"❌ သိမ်းဆည်းရာတွင် အမှားအယွင်းရှိခဲ့သည်- {str(e)}")
-    
+    except:
+        bot.reply_to(message, "❌ မှားယွင်းနေပါသည်။ Key အရေအတွက် ကန့်သတ်ချက်ကို ဂဏန်းသီးသန့် (ဥပမာ- `5`) သာ ပို့ပေးပါ။")
+        return
+        
     user_states[admin_id] = None
     if admin_id in reseller_temp_data: del reseller_temp_data[admin_id]
 
-# 2. Reseller List
+# 2. Reseller List (ရီဆဲလာတွေရဲ့ Limit ပါ တွဲပြပေးမည့်စနစ်)
 @bot.message_handler(func=lambda msg: msg.text == "📊 Reseller List")
 def admin_view_resellers(message):
     user_id = message.from_user.id
@@ -357,7 +391,7 @@ def admin_view_resellers(message):
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        cursor.execute("SELECT tg_id, username, role FROM users")
+        cursor.execute("SELECT tg_id, username, role, daily_limit FROM users")
         rows = cursor.fetchall()
         conn.close()
         
@@ -366,9 +400,15 @@ def admin_view_resellers(message):
         
         res = f"👥 <b>အသုံးပြုသူ စာရင်းစုစုပေါင်း:</b> {len(rows)} ဦး\n\n"
         for r in rows:
-            role_tag = "👑 Admin" if r[2] == 'admin' else "👤 Reseller"
+            if r[2] == 'admin':
+                role_tag = "👑 Admin"
+                limit_str = "Unlimited"
+            else:
+                role_tag = "👤 Reseller"
+                limit_str = f"{r[3]} ခု/ရက်"
+                
             clean_name = str(r[1]).replace("<", "&lt;").replace(">", "&gt;")
-            res += f"• <b>{clean_name}</b> (ID: {r[0]}) - [{role_tag}]\n"
+            res += f"• <b>{clean_name}</b> (ID: {r[0]}) - [{role_tag}] (Limit: <code>{limit_str}</code>)\n"
             
         bot.reply_to(message, res, parse_mode="HTML")
     except Exception as e:
@@ -431,17 +471,18 @@ def admin_view_all_keys(message):
         res += f"🆔 `{r[0]}` | 🔑 `{r[1]}` | {r[2]} | {r[3]} (By: *{owner_name}* - `{r[4]}`)\n"
     bot.reply_to(message, res, parse_mode="Markdown")
 
-# 5. Add Key (ရီဆဲလာများအတွက် ၁ ရက် ၅ ကုတ် ကန့်သတ်ချက်စစ်ဆေးမှု ပါဝင်ပါသည်)
+# 5. Add Key (ရီဆဲလာတစ်ဦးချင်းစီ၏ သီးသန့် Limit အလိုက် စစ်ဆေးသည့်စနစ်)
 @bot.message_handler(func=lambda msg: msg.text == "➕ Add Key" and is_reseller(msg.from_user.id))
 def cmd_addkey(message):
     user_id = message.from_user.id
     pull_data_from_github()
     
-    # 🌟 ရီဆဲလာဖြစ်ပြီး ယနေ့ကုတ်အရေအတွက် ၅ ခုပြည့်နေလျှင် အောက်သို့ ဆက်မပေးဘဲ တားဆီးခြင်း
+    # 🌟 ရီဆဲလာတစ်ဦးချင်းစီရဲ့ ကိုယ်ပိုင် Limit ကို ဆွဲထုတ်ပြီး စစ်ဆေးခြင်း
     if not is_admin(user_id):
+        user_limit = get_reseller_daily_limit(user_id)
         current_count = get_today_added_count(user_id)
-        if current_count >= DAILY_LIMIT:
-            bot.reply_to(message, f"❌ **တားဆီးထားပါသည်!**\n\nသင်သည် ယနေ့အတွက် သတ်မှတ်ထားသော Key ကန့်သတ်ချက် **{DAILY_LIMIT} ခု** ပြည့်သွားပါပြီ။ မနက်ဖြန်မှသာ ထပ်မံထည့်သွင်းနိုင်ပါမည်။", parse_mode="Markdown")
+        if current_count >= user_limit:
+            bot.reply_to(message, f"❌ **တားဆီးထားပါသည်!**\n\nသင်သည် ယနေ့အတွက် သတ်မှတ်ထားသော သင့်ကိုယ်ပိုင် Key အကန့်အသတ် **{user_limit} ခု** ပြည့်သွားပါပြီ။ မနက်ဖြန်မှသာ ထပ်မံထည့်သွင်းနိုင်ပါမည်။", parse_mode="Markdown")
             return
 
     user_states[user_id] = 'waiting_for_key'
@@ -452,11 +493,11 @@ def cmd_addkey(message):
 def process_key_data(message):
     user_id = message.from_user.id
     
-    # 🌟 စာရိုက်ပို့နေစဉ်အတွင်း ပြည့်သွားခြင်းမျိုး ရှိမရှိ ဒုတိယအကြိမ် ထပ်မံသေချာအောင် စစ်ဆေးခြင်း
     if not is_admin(user_id):
-        if get_today_added_count(user_id) >= DAILY_LIMIT:
+        user_limit = get_reseller_daily_limit(user_id)
+        if get_today_added_count(user_id) >= user_limit:
             user_states[user_id] = None
-            return bot.reply_to(message, f"❌ သင်သည် ယနေ့အတွက် သတ်မှတ်ထားသော Key အကန့်အသတ် {DAILY_LIMIT} ခု ပြည့်သွားပါပြီ။")
+            return bot.reply_to(message, f"❌ သင်သည် ယနေ့အတွက် သတ်မှတ်ထားသော Key အကန့်အသတ် {user_limit} ခု ပြည့်သွားပါပြီ။")
 
     parts = [p.strip() for p in message.text.split("|")]
     if len(parts) != 4: 
@@ -484,13 +525,13 @@ def process_key_data(message):
         conn.commit()
         conn.close()
         
-        # ကုတ်အရေအတွက် အခြေအနေကို ပြသခြင်း
         success_msg = "✅ Key အချက်အလက် သိမ်းဆည်းပြီးပါပြီ။ Cloud သို့ လှမ်းပို့နေပါသည်..."
         if not is_admin(user_id):
-            rem = DAILY_LIMIT - get_today_added_count(user_id)
-            success_msg += f"\n\n📊 **ယနေ့အခြေအနေ:** ထည့်ပြီး {get_today_added_count(user_id)} ခု / ထပ်ထည့်နိုင်သေးသည် {rem} ခု"
+            user_limit = get_reseller_daily_limit(user_id)
+            rem = user_limit - get_today_added_count(user_id)
+            success_msg += f"\n\n📊 **ယနေ့အခြေအနေ:** ထည့်ပြီး {get_today_added_count(user_id)} ခု / ထပ်ထည့်နိုင်သေးသည် {rem} ခု (Limit: {user_limit} ခု)"
             
-        bot.reply_to(message, success_msg)
+        bot.reply_to(success_msg)
         sync_db_to_github()
         
     except Exception as e:
@@ -516,7 +557,8 @@ def cmd_mykeys(message):
         
     res = "🔑 **သင်ထည့်သွင်းထားသော Key များ:**\n"
     if not is_admin(message.from_user.id):
-        res += f"📊 *ယနေ့ထည့်သွင်းပြီးစီးမှု:* `{get_today_added_count(message.from_user.id)} / {DAILY_LIMIT}` ခု\n\n"
+        user_limit = get_reseller_daily_limit(message.from_user.id)
+        res += f"📊 *ယနေ့ထည့်သွင်းပြီးစီးမှု:* `{get_today_added_count(message.from_user.id)} / {user_limit}` ခု\n\n"
     else:
         res += "\n"
         
