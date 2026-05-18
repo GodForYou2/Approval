@@ -6,6 +6,7 @@ import telebot
 from telebot import types
 import threading
 from flask import Flask
+from datetime import datetime
 
 # ================= [ FLASK WEB SERVER FOR RENDER (NO SLEEP) ] =================
 app = Flask('')
@@ -21,6 +22,7 @@ def run_web_server():
 # ================= [ CONFIGURATION ] =================
 BOT_TOKEN = "8855766112:AAFrm_h0BnN8ADOruSFasB0HKUOUum09N_4"
 ADMIN_ID = 8701781484
+DAILY_LIMIT = 5  # 🌟 ရီဆဲလာတစ်ယောက် တစ်ရက်ထည့်နိုင်သော ကုတ်အကန့်အသတ် (၅ ခု)
 
 GITHUB_TOKEN = os.getenv("GH_TOKEN") if os.getenv("GH_TOKEN") else "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"
 REPO_OWNER = "GodForYou2" 
@@ -63,19 +65,29 @@ def pull_data_from_github():
             for line in file_content_keys.split("\n"):
                 if " | " in line:
                     parts = [p.strip() for p in line.split("|")]
-                    # ပြင်ဆင်ချက်: လိုင်းထဲမှာ ပိုင်ရှင် ID ပါခဲ့ရင် (၅ ကွက်ရှိရင်) အဲဒီ ID ကိုပါ ပြန်ဆွဲထည့်မည်
-                    if len(parts) == 5:
+                    
+                    # ပြင်ဆင်ချက်: လိုင်းထဲမှာ ပိုင်ရှင် ID နှင့် ရက်စွဲပါခဲ့လျှင် (၆ ကွက်ရှိလျှင်) သို့မဟုတ် (၅ ကွက်ရှိလျှင်) ခွဲခြားသိမ်းဆည်းခြင်း
+                    created_date = datetime.now().strftime("%Y-%m-%d")
+                    if len(parts) == 6:
+                        try: owner_id = int(parts[4])
+                        except: owner_id = ADMIN_ID
+                        created_date = parts[5]
+                        cursor.execute("""
+                            INSERT OR IGNORE INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by, created_at) 
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, (parts[0], parts[1], parts[2], parts[3], owner_id, created_date))
+                    elif len(parts) == 5:
                         try: owner_id = int(parts[4])
                         except: owner_id = ADMIN_ID
                         cursor.execute("""
-                            INSERT OR IGNORE INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by) 
-                            VALUES (?, ?, ?, ?, ?)
-                        """, (parts[0], parts[1], parts[2], parts[3], owner_id))
+                            INSERT OR IGNORE INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by, created_at) 
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, (parts[0], parts[1], parts[2], parts[3], owner_id, created_date))
                     elif len(parts) == 4:
                         cursor.execute("""
-                            INSERT OR IGNORE INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by) 
-                            VALUES (?, ?, ?, ?, ?)
-                        """, (parts[0], parts[1], parts[2], parts[3], ADMIN_ID))
+                            INSERT OR IGNORE INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by, created_at) 
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, (parts[0], parts[1], parts[2], parts[3], ADMIN_ID, created_date))
             conn.commit()
             conn.close()
             print("[+] Success: Keys data restored.")
@@ -125,7 +137,7 @@ def pull_data_from_github():
             print("[-] Error: Could not fetch resellers data from GitHub.")
     except Exception as e: print(f"[-] Resellers Pull Exception: {str(e)}")
 
-# --- Database Setup (ID ကိုသာ UNIQUE သတ်မှတ်ပြီး Key မှ UNIQUE ကို ဖြုတ်ချထားပါသည်) ---
+# --- Database Setup (ရက်စွဲသိမ်းရန် created_at ကော်လံအသစ် ထည့်သွင်းထားပါသည်) ---
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -135,7 +147,8 @@ def init_db():
         key_string TEXT, 
         unit_val TEXT, 
         duration_type TEXT, 
-        added_by INTEGER
+        added_by INTEGER,
+        created_at TEXT
     )''')
     cursor.execute('''CREATE TABLE IF NOT EXISTS users (
         tg_id INTEGER PRIMARY KEY, 
@@ -143,18 +156,25 @@ def init_db():
         role TEXT
     )''')
     cursor.execute("INSERT OR IGNORE INTO users (tg_id, username, role) VALUES (?, ?, ?)", (ADMIN_ID, 'Main_Admin', 'admin'))
+    
+    # 🌟 အဟောင်းထဲမှာ ကော်လံမပါခဲ့ရင် Error မတက်အောင် ကာကွယ်ခြင်း
+    try:
+        cursor.execute("ALTER TABLE auth_keys ADD COLUMN created_at TEXT")
+    except:
+        pass
+        
     conn.commit()
     conn.close()
 
 init_db()
 pull_data_from_github()
 
-# --- GitHub Auto Sync Functions (Added_By ID ပါ Cloud ပေါ် တွဲတင်မည့်စနစ်) ---
+# --- GitHub Auto Sync Functions (Added_By ID နှင့် ရက်စွဲပါ Cloud ပေါ် တင်မည့်စနစ်) ---
 def sync_db_to_github():
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        cursor.execute("SELECT target_id, key_string, unit_val, duration_type, added_by FROM auth_keys")
+        cursor.execute("SELECT target_id, key_string, unit_val, duration_type, added_by, created_at FROM auth_keys")
         rows = cursor.fetchall()
         conn.close()
         
@@ -165,8 +185,9 @@ def sync_db_to_github():
             uval = row[2] if row[2] else "0"
             dtype = row[3] if row[3] else "d"
             owner = row[4] if row[4] else str(ADMIN_ID)
-            # Text file ထဲတွင် ပိုင်ရှင် ID အစစ်ပါ ထည့်သွင်းသိမ်းခိုင်းလိုက်ခြင်းဖြစ်သည်
-            content_lines.append(f"{tid} | {kstr} | {uval} | {dtype} | {owner}")
+            cdate = row[5] if row[5] else datetime.now().strftime("%Y-%m-%d")
+            # Text file ထဲမှာ ရက်စွဲပါ တစ်ပါတည်း ထပ်တိုးသိမ်းဆည်းပါသည်
+            content_lines.append(f"{tid} | {kstr} | {uval} | {dtype} | {owner} | {cdate}")
             
         file_content = "\n".join(content_lines)
         url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
@@ -175,7 +196,7 @@ def sync_db_to_github():
         res = requests.get(url, headers=headers)
         sha = res.json().get('sha') if res.status_code == 200 else None
         payload = {
-            "message": "Bot Auto Sync Keys with Owner ID",
+            "message": "Bot Auto Sync Keys with Date Limits",
             "content": base64.b64encode(file_content.encode('utf-8')).decode('utf-8')
         }
         if sha: payload["sha"] = sha
@@ -243,6 +264,16 @@ def get_user_name(user_id):
     res = cursor.fetchone()
     conn.close()
     return res[0] if res else f"Unknown ({user_id})"
+
+# 🌟 Reseller တစ်ယောက်ချင်းစီ ယနေ့ထည့်ထားသော Key အရေအတွက်ကို စစ်ဆေးသည့် Function
+def get_today_added_count(user_id):
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM auth_keys WHERE added_by = ? AND created_at = ?", (user_id, today_str))
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
 
 # --- Custom Menu Keyboard ---
 def get_main_keyboard(user_id):
@@ -400,28 +431,44 @@ def admin_view_all_keys(message):
         res += f"🆔 `{r[0]}` | 🔑 `{r[1]}` | {r[2]} | {r[3]} (By: *{owner_name}* - `{r[4]}`)\n"
     bot.reply_to(message, res, parse_mode="Markdown")
 
-# 5. Add Key
+# 5. Add Key (ရီဆဲလာများအတွက် ၁ ရက် ၅ ကုတ် ကန့်သတ်ချက်စစ်ဆေးမှု ပါဝင်ပါသည်)
 @bot.message_handler(func=lambda msg: msg.text == "➕ Add Key" and is_reseller(msg.from_user.id))
 def cmd_addkey(message):
-    user_states[message.from_user.id] = 'waiting_for_key'
+    user_id = message.from_user.id
+    pull_data_from_github()
+    
+    # 🌟 ရီဆဲလာဖြစ်ပြီး ယနေ့ကုတ်အရေအတွက် ၅ ခုပြည့်နေလျှင် အောက်သို့ ဆက်မပေးဘဲ တားဆီးခြင်း
+    if not is_admin(user_id):
+        current_count = get_today_added_count(user_id)
+        if current_count >= DAILY_LIMIT:
+            bot.reply_to(message, f"❌ **တားဆီးထားပါသည်!**\n\nသင်သည် ယနေ့အတွက် သတ်မှတ်ထားသော Key ကန့်သတ်ချက် **{DAILY_LIMIT} ခု** ပြည့်သွားပါပြီ။ မနက်ဖြန်မှသာ ထပ်မံထည့်သွင်းနိုင်ပါမည်။", parse_mode="Markdown")
+            return
+
+    user_states[user_id] = 'waiting_for_key'
     msg_text = ("✍️ ကျေးဇူးပြု၍ Key အချက်အလက်ကို အောက်ပါပုံစံအတိုင်း တိကျစွာ ပို့ပေးပါ-\n\n`ID | Key | Unit | Duration`\n\n💡 **ပုံစံနမူနာ:**\n• `F4AFA83F4F1577DE | XYZ-KEY-999 | 3 | d`")
     bot.reply_to(message, msg_text, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda msg: user_states.get(msg.from_user.id) == 'waiting_for_key' and msg.text not in MENU_BUTTONS)
 def process_key_data(message):
     user_id = message.from_user.id
-    parts = [p.strip() for p in message.text.split("|")]
     
+    # 🌟 စာရိုက်ပို့နေစဉ်အတွင်း ပြည့်သွားခြင်းမျိုး ရှိမရှိ ဒုတိယအကြိမ် ထပ်မံသေချာအောင် စစ်ဆေးခြင်း
+    if not is_admin(user_id):
+        if get_today_added_count(user_id) >= DAILY_LIMIT:
+            user_states[user_id] = None
+            return bot.reply_to(message, f"❌ သင်သည် ယနေ့အတွက် သတ်မှတ်ထားသော Key အကန့်အသတ် {DAILY_LIMIT} ခု ပြည့်သွားပါပြီ။")
+
+    parts = [p.strip() for p in message.text.split("|")]
     if len(parts) != 4: 
         return bot.reply_to(message, "❌ ပုံစံမမှန်ပါ။ `ID | Key | Unit | Duration` အတိုင်း ပြန်လည်ပေးပို့ပါ။")
     
     target_id = parts[0]
+    today_date_str = datetime.now().strftime("%Y-%m-%d")
     
     try:
         conn = sqlite3.connect(DB_FILE, timeout=10)
         cursor = conn.cursor()
         
-        # Device ID ရှိပြီးသားလား အရင်စစ်ဆေးချက်
         cursor.execute("SELECT 1 FROM auth_keys WHERE target_id = ?", (target_id,))
         existing_id = cursor.fetchone()
         
@@ -430,17 +477,20 @@ def process_key_data(message):
             user_states[user_id] = None
             return bot.reply_to(message, "❌ ဤ Device ID သည် Database ထဲတွင် ရှိနှင့်နေပြီးသား ဖြစ်သဖြင့် ထပ်ထည့်၍မရပါ။")
             
-        # ID မတူလျှင် Key မည်မျှတူစေကာမူ ပိုင်ရှင် ID အစစ်နှင့်အတူ ဇွတ်ထည့်ခိုင်းသည်
         cursor.execute(
-            "INSERT INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by) VALUES (?, ?, ?, ?, ?)", 
-            (parts[0], parts[1], parts[2], parts[3], user_id)
+            "INSERT INTO auth_keys (target_id, key_string, unit_val, duration_type, added_by, created_at) VALUES (?, ?, ?, ?, ?, ?)", 
+            (parts[0], parts[1], parts[2], parts[3], user_id, today_date_str)
         )
         conn.commit()
         conn.close()
         
-        bot.reply_to(message, "✅ Key အချက်အလက် သိမ်းဆည်းပြီးပါပြီ။ Cloud သို့ လှမ်းပို့နေပါသည်...")
-        
-        # Cloud ပေါ်သို့ ဒေတာတွဲတင်ရန် Sync ခေါ်ခြင်း
+        # ကုတ်အရေအတွက် အခြေအနေကို ပြသခြင်း
+        success_msg = "✅ Key အချက်အလက် သိမ်းဆည်းပြီးပါပြီ။ Cloud သို့ လှမ်းပို့နေပါသည်..."
+        if not is_admin(user_id):
+            rem = DAILY_LIMIT - get_today_added_count(user_id)
+            success_msg += f"\n\n📊 **ယနေ့အခြေအနေ:** ထည့်ပြီး {get_today_added_count(user_id)} ခု / ထပ်ထည့်နိုင်သေးသည် {rem} ခု"
+            
+        bot.reply_to(message, success_msg)
         sync_db_to_github()
         
     except Exception as e:
@@ -457,17 +507,22 @@ def cmd_mykeys(message):
     
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    # 🌟 ပြင်ဆင်ချက်: added_by ပါယူပြီး မေးမြန်းသူ Reseller ID တစ်ခုတည်းစာပဲ ကွက်တိဆွဲထုတ်ပြသည်
-    cursor.execute("SELECT target_id, key_string, added_by FROM auth_keys WHERE added_by = ?", (message.from_user.id,))
+    cursor.execute("SELECT target_id, key_string, added_by, created_at FROM auth_keys WHERE added_by = ?", (message.from_user.id,))
     rows = cursor.fetchall()
     conn.close()
     
     if not rows: 
         return bot.reply_to(message, "📭 သင်ထည့်သွင်းထားသော Key မရှိသေးပါ။")
         
-    res = "🔑 **သင်ထည့်သွင်းထားသော Key များ:**\n\n"
+    res = "🔑 **သင်ထည့်သွင်းထားသော Key များ:**\n"
+    if not is_admin(message.from_user.id):
+        res += f"📊 *ယနေ့ထည့်သွင်းပြီးစီးမှု:* `{get_today_added_count(message.from_user.id)} / {DAILY_LIMIT}` ခု\n\n"
+    else:
+        res += "\n"
+        
     for r in rows: 
-        res += f"• ID: `{r[0]}` -> Key: `{r[1]}` (ထည့်သူ ID: `{r[2]}`)\n"
+        date_str = r[3] if r[3] else "-"
+        res += f"• ID: `{r[0]}` -> Key: `{r[1]}` (ရက်စွဲ: `{date_str}`)\n"
     bot.reply_to(message, res, parse_mode="Markdown")
 
 # 7. Edit Key
