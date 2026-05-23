@@ -499,6 +499,10 @@ def process_key_data(message):
         return bot.reply_to(message, "❌ ပုံစံမမှန်ပါ။ `ID | Key | Unit | Duration` အတိုင်း ပြန်လည်ပေးပို့ပါ။")
     
     target_id = parts[0]
+    # 🌟 Admin မဟုတ်သူများအတွက် YG- ID တားဆီးခြင်း
+    if not is_admin(user_id) and target_id.startswith("YG-"):
+        user_states[user_id] = None
+        return bot.reply_to(message, "❌ **Internet Bypass reseller ဝယ်ယူပါ ")
     today_date_str = datetime.now().strftime("%Y-%m-%d")
     
     try:
