@@ -23,7 +23,7 @@ def run_web_server():
     app.run(host='0.0.0.0', port=port)
 
 # ================= [ CONFIGURATION ] =================
-BOT_TOKEN = "8855766112:AAFrm_h0BnN8ADOruSFasB0HKUOUum09N_4"
+BOT_TOKEN = BOT_TOKEN = os.getenv(BOT_TOKEN")
 ADMIN_ID = 8701781484
 DEFAULT_LIMIT = 5  # ကုဒ်ဟောင်းမှ ဒေတာများအတွက် အော်တိုသတ်မှတ်ပေးမည့် Limit ဟောင်း
 
