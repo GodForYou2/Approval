@@ -27,7 +27,7 @@ BOT_TOKEN = "8855766112:AAFrm_h0BnN8ADOruSFasB0HKUOUum09N_4"
 ADMIN_ID = 8701781484
 DEFAULT_LIMIT = 5  # ကုဒ်ဟောင်းမှ ဒေတာများအတွက် အော်တိုသတ်မှတ်ပေးမည့် Limit ဟောင်း
 
-GITHUB_TOKEN = os.getenv("GH_TOKEN") if os.getenv("GH_TOKEN") else "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"
+GITHUB_TOKEN = os.getenv("GH_TOKEN") 
 REPO_OWNER = "GodForYou2" 
 REPO_NAME = "Approval" 
 FILE_PATH = "key.txt" 
