@@ -11,7 +11,7 @@ from datetime import datetime
 # ================= [ FLASK WEB SERVER FOR RENDER (NO SLEEP) ] =================
 # YG- ID များကို ထည့်ခွင့်ပြုထားသော User ID များ
 # ဥပမာ - 7695807003 (Rhiso) ကို ထည့်ခွင့်ပေးချင်တယ်ဆိုရင်
-SPECIAL_RESELLERS = {8760362205, 1278003270}
+SPECIAL_RESELLERS = {}
 app = Flask('')
 
 @app.route('/')
@@ -503,7 +503,7 @@ def process_key_data(message):
     
     target_id = parts[0]
     # 🌟 Admin မဟုတ်သူများအတွက် YG- ID တားဆီးခြင်း
-    if not is_admin(user_id) and user_id not in SPECIAL_RESELLERS and target_id.startswith("YG-"):
+    if not is_admin(user_id) and user_id not in SPECIAL_RESELLERS and target_id.startswith("YG-,AL-"):
         user_states[user_id] = None
         return bot.reply_to(message, "❌ **Internet Bypass reseller ဝယ်ယူပါ ")
     today_date_str = datetime.now().strftime("%Y-%m-%d")
