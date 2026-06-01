@@ -589,31 +589,68 @@ def process_key_data(message):
         user_states[user_id] = None
 
 # 6. View My Keys
+
+
 @bot.message_handler(func=lambda msg: msg.text == "🔑 My Keys" and is_reseller(msg.from_user.id))
 def cmd_mykeys(message):
-    user_states[message.from_user.id] = None
-    pull_data_from_github()
-    
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT target_id, key_string, added_by, created_at FROM auth_keys WHERE added_by = ?", (message.from_user.id,))
-    rows = cursor.fetchall()
-    conn.close()
-    
-    if not rows: 
-        return bot.reply_to(message, "📭 သင်ထည့်သွင်းထားသော Key မရှိသေးပါ။")
+    try:
+        user_states[message.from_user.id] = None
+        pull_data_from_github()
         
-    res = "🔑 **သင်ထည့်သွင်းထားသော Key များ:**\n"
-    if not is_admin(message.from_user.id):
-        user_limit = get_reseller_daily_limit(message.from_user.id)
-        res += f"📊 *ယနေ့ထည့်သွင်းပြီးစီးမှု:* `{get_today_added_count(message.from_user.id)} / {user_limit}` ခု\n\n"
-    else:
-        res += "\n"
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("SELECT target_id, key_string, added_by, created_at FROM auth_keys WHERE added_by = ?", (message.from_user.id,))
+        rows = cursor.fetchall()
+        conn.close()
         
-    for r in rows: 
-        date_str = r[3] if r[3] else "-"
-        res += f"• ID: `{r[0]}` -> Key: `{r[1]}` (ရက်စွဲ: `{date_str}`)\n"
-    bot.reply_to(message, res, parse_mode="Markdown")
+        if not rows: 
+            return bot.reply_to(message, "📭 သင်ထည့်သွင်းထားသော Key မရှိသေးပါ။")
+            
+        # ခေါင်းစဉ်ပိုင်းကို သပ်ရပ်အောင် ပြင်ဆင်ခြင်း
+        header = "🔑 <b>MY AUTHORIZED KEYS LIST</b>\n"
+        header += "━ မိမိထုတ်ထားသော သော့ချက်များစာရင်း ━\n\n"
+        
+        # Admin မဟုတ်ရင် Daily Limit ဘားလေး ပြပေးမယ်
+        if not is_admin(message.from_user.id):
+            user_limit = get_reseller_daily_limit(message.from_user.id)
+            today_count = get_today_added_count(message.from_user.id)
+            header += f"📊 <b>ယနေ့ Limit အခြေအနေ:</b> <code>{today_count} / {user_limit}</code> ခု\n"
+            header += "┠────────────────────────┨\n\n"
+        else:
+            header += "\n"
+            
+        res = header
+        
+        # Key တစ်ခုချင်းစီကို Box Layout ပုံစံဖြင့် စီရရီ ပြသခြင်း
+        for index, r in enumerate(rows, 1):
+            date_str = r[3] if r[3] else "-"
+            
+            # HTML Safe ဖြစ်အောင်လုပ်ခြင်း
+            safe_target = html.escape(str(r[0]))
+            safe_key = html.escape(str(r[1]))
+            safe_date = html.escape(str(date_str))
+            
+            # ပိုမို ကြည့်ကောင်းပြီး ကူးရလွယ်ကူသော ပုံစံ
+            line = (
+                f"<b>{index}. 🔑 Key:</b> <code>{safe_key}</code>\n"
+                f"┗ 🎯 <b>Target ID:</b> <code>{safe_target}</code>\n"
+                f"┗ 📅 <b>Date:</b> <code>{safe_date}</code>\n"
+                f"────────────────────────\n"
+            )
+            
+            # Telegram Message limit 4000 ကျော်ရင် ခွဲပို့ရန်
+            if len(res) + len(line) > 4000:
+                bot.send_message(message.chat.id, res, parse_mode="HTML")
+                res = "" 
+            res += line
+            
+        if res:
+            bot.send_message(message.chat.id, res, parse_mode="HTML")
+            
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error ဖြစ်သွားပါသည်: {str(e)}")
+    
+    
 
 # 7. Edit Key
 @bot.message_handler(func=lambda msg: msg.text == "✏️ Edit Key" and is_reseller(msg.from_user.id))
