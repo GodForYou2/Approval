@@ -482,7 +482,7 @@ def admin_view_all_keys(message):
         # ဇယားပုံစံ ခေါင်းစဉ်
         res = "📊 <b>RESELLER KEYS SUMMARY REPORT</b>\n"
         res += "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        res += "<b>စဉ်  |  အမည် (ID)  |  Key အရေအတွက်</b>\n"
+        res += "<b>No  |  Name (ID)  |  Added ID Count</b>\n"
         res += "━━━━━━━━━━━━━━━━━━━━━━━━\n"
         
         total_all_keys = 0 # Database တစ်ခုလုံးမှာရှိတဲ့ Key စုစုပေါင်းကိုပါ တွက်ရန်
