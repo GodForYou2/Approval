@@ -455,7 +455,6 @@ def callback_delete_reseller(call):
 
 # 4. View All Keys
 
-
 @bot.message_handler(func=lambda msg: msg.text == "🌐 View All Keys" and is_admin(msg.from_user.id))
 def admin_view_all_keys(message):
     try:
@@ -464,7 +463,19 @@ def admin_view_all_keys(message):
         
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        cursor.execute("SELECT target_id, key_string, unit_val, duration_type, added_by FROM auth_keys")
+        
+        # သာမန် data တွေအပြင် Reseller တစ်ယောက်ချင်းစီရဲ့ Key အရေအတွက် (Total Keys) ကိုပါ တစ်ခါတည်း တွက်ထုတ်ထားပါတယ်
+        query = """
+            SELECT 
+                target_id, 
+                key_string, 
+                unit_val, 
+                duration_type, 
+                added_by,
+                (SELECT COUNT(*) FROM auth_keys ak2 WHERE ak2.added_by = auth_keys.added_by) as total_count
+            FROM auth_keys
+        """
+        cursor.execute(query)
         rows = cursor.fetchall()
         conn.close()
 
@@ -476,7 +487,6 @@ def admin_view_all_keys(message):
         res = header
         
         for index, r in enumerate(rows, 1):
-            # Owner Name စစ်ဆေးခြင်း (မရှိရင် သေချာပြပေးရန်)
             raw_owner_name = get_user_name(r[4])
             if not raw_owner_name or str(raw_owner_name).lower() == 'unknown' or str(raw_owner_name).lower() == 'none':
                 owner_name = "❌ Deleted/Unknown User"
@@ -490,13 +500,15 @@ def admin_view_all_keys(message):
             unit_val = html.escape(str(r[2]))
             duration = html.escape(str(r[3]))
             reseller_id = html.escape(str(r[4]))
+            reseller_total_keys = r[5] # ၎င်း Reseller ထည့်ထားသမျှ key အရေအတွက် စုစုပေါင်း
             
-            # ပိုမိုသပ်ရပ်လှပသော သတင်းအချက်အလက် Layout
+            # Layout ထဲတွင် "ထည့်ထားသော ID အရေအတွက်" ကို ထည့်သွင်းပြသခြင်း
             line = (
                 f"<b>{index}. 🔑 Key:</b> <code>{safe_key}</code>\n"
                 f"┗ 👤 <b>Target ID:</b> <code>{safe_target}</code>\n"
                 f"┗ ⏳ <b>Duration:</b> {unit_val} {duration}\n"
                 f"┗ 👨‍💻 <b>Added By:</b> {safe_name} (<code>{reseller_id}</code>)\n"
+                f"┗ 📊 <b>Reseller Total Keys:</b> {reseller_total_keys} ခု\n"
                 f"┠────────────────────────┨\n"
             )
             
@@ -511,6 +523,11 @@ def admin_view_all_keys(message):
 
     except Exception as e:
         bot.reply_to(message, f"❌ Error ဖြစ်သွားပါသည်: {str(e)}")
+
+
+        
+            
+            
         
         
     
@@ -608,7 +625,7 @@ def cmd_mykeys(message):
             
         # ခေါင်းစဉ်ပိုင်းကို သပ်ရပ်အောင် ပြင်ဆင်ခြင်း
         header = "🔑 <b>MY AUTHORIZED KEYS LIST</b>\n"
-        header += "━ မိမိထုတ်ထားသော သော့ချက်များစာရင်း ━\n\n"
+        header += "━ မိမိထုတ်ထားသော ID/Keyစာရင်း ━\n\n"
         
         # Admin မဟုတ်ရင် Daily Limit ဘားလေး ပြပေးမယ်
         if not is_admin(message.from_user.id):
@@ -633,7 +650,7 @@ def cmd_mykeys(message):
             # ပိုမို ကြည့်ကောင်းပြီး ကူးရလွယ်ကူသော ပုံစံ
             line = (
                 f"<b>{index}. 🔑 Key:</b> <code>{safe_key}</code>\n"
-                f"┗ 🎯 <b>Target ID:</b> <code>{safe_target}</code>\n"
+                f"┗ 🎯 <b>Device ID:</b> <code>{safe_target}</code>\n"
                 f"┗ 📅 <b>Date:</b> <code>{safe_date}</code>\n"
                 f"────────────────────────\n"
             )
