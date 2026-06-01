@@ -455,20 +455,38 @@ def callback_delete_reseller(call):
 # 4. View All Keys
 @bot.message_handler(func=lambda msg: msg.text == "🌐 View All Keys" and is_admin(msg.from_user.id))
 def admin_view_all_keys(message):
-    user_states[message.from_user.id] = None
-    pull_data_from_github()
-    
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT target_id, key_string, unit_val, duration_type, added_by FROM auth_keys")
-    rows = cursor.fetchall()
-    conn.close()
-    if not rows: return bot.reply_to(message, "📭 Database ထဲတွင် Key မရှိသေးပါ။")
-    res = f"🌐 **Database အတွင်းရှိ Key အားလုံးစာရင်း ({len(rows)} ခု):**\n\n"
-    for r in rows: 
-        owner_name = get_user_name(r[4])
-        res += f"🆔 `{r[0]}` | 🔑 `{r[1]}` | {r[2]} | {r[3]} (By: *{owner_name}* - `{r[4]}`)\n"
-    bot.reply_to(message, res, parse_mode="Markdown")
+    try:
+        user_states[message.from_user.id] = None
+        pull_data_from_github() # ဒီနေရာမှာ Error တက်မတက် log ထုတ်ကြည့်ပါ
+        
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("SELECT target_id, key_string, unit_val, duration_type, added_by FROM auth_keys")
+        rows = cursor.fetchall()
+        conn.close()
+
+        if not rows:
+            return bot.reply_to(message, "📭 Database ထဲတွင် Key မရှိသေးပါ။")
+
+        header = f"🌐 **Database အတွင်းရှိ Key အားလုံးစာရင်း ({len(rows)} ခု):**\n\n"
+        res = header
+        
+        for r in rows:
+            owner_name = get_user_name(r[4])
+            # Markdown Error မတက်အောင် escape လုပ်ပေးဖို့ လိုနိုင်ပါတယ်
+            line = f"🆔 `{r[0]}` | 🔑 `{r[1]}` | {r[2]} {r[3]} (By: `{r[4]}`)\n"
+            
+            # Telegram စာသား limit ကျော်မသွားအောင် စစ်ထုတ်ပြီး ခွဲပို့ခြင်း
+            if len(res) + len(line) > 4000:
+                bot.send_message(message.chat.id, res, parse_mode="Markdown")
+                res = "" # စာသားအသစ်ပြန်စ
+            res += line
+
+        if res:
+            bot.send_message(message.chat.id, res, parse_mode="Markdown")
+
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error ဖြစ်သွားပါသည်: {str(e)}")
 
 # 5. Add Key (🌟 Fix တာကွက် - bot.reply_to စာသားနေရာတွင် message ပိုဇစ်ရှင် ထည့်သွင်းပြင်ဆင်ပြီး)
 @bot.message_handler(func=lambda msg: msg.text == "➕ Add Key" and is_reseller(msg.from_user.id))
