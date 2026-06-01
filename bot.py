@@ -455,6 +455,7 @@ def callback_delete_reseller(call):
 
 # 4. View All Keys
 
+
 @bot.message_handler(func=lambda msg: msg.text == "🌐 View All Keys" and is_admin(msg.from_user.id))
 def admin_view_all_keys(message):
     try:
@@ -464,16 +465,12 @@ def admin_view_all_keys(message):
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         
-        # သာမန် data တွေအပြင် Reseller တစ်ယောက်ချင်းစီရဲ့ Key အရေအတွက် (Total Keys) ကိုပါ တစ်ခါတည်း တွက်ထုတ်ထားပါတယ်
+        # User တစ်ယောက်ချင်းစီအလိုက် Key အရေအတွက်ကိုပဲ GROUP BY သုံးပြီး ကျစ်ကျစ်လျစ်လျစ် ဆွဲထုတ်ခြင်း
         query = """
-            SELECT 
-                target_id, 
-                key_string, 
-                unit_val, 
-                duration_type, 
-                added_by,
-                (SELECT COUNT(*) FROM auth_keys ak2 WHERE ak2.added_by = auth_keys.added_by) as total_count
-            FROM auth_keys
+            SELECT added_by, COUNT(*) as total_keys 
+            FROM auth_keys 
+            GROUP BY added_by
+            ORDER BY total_keys DESC
         """
         cursor.execute(query)
         rows = cursor.fetchall()
@@ -482,49 +479,45 @@ def admin_view_all_keys(message):
         if not rows:
             return bot.reply_to(message, "📭 Database ထဲတွင် Key မရှိသေးပါ။")
 
-        header = f"🌐 <b>DATABASE KEYS LIST ({len(rows)} ခု)</b>\n"
-        header += f"━ Paid/Free Key များကို အောက်တွင် စစ်ဆေးနိုင်သည် ━\n\n"
-        res = header
+        # ဇယားပုံစံ ခေါင်းစဉ်
+        res = "📊 <b>RESELLER KEYS SUMMARY REPORT</b>\n"
+        res += "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        res += "<b>စဉ်  |  အမည် (ID)  |  Key အရေအတွက်</b>\n"
+        res += "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        
+        total_all_keys = 0 # Database တစ်ခုလုံးမှာရှိတဲ့ Key စုစုပေါင်းကိုပါ တွက်ရန်
         
         for index, r in enumerate(rows, 1):
-            raw_owner_name = get_user_name(r[4])
+            reseller_id = r[0]
+            key_count = r[1]
+            total_all_keys += key_count
+            
+            # Owner Name စစ်ဆေးခြင်း
+            raw_owner_name = get_user_name(reseller_id)
             if not raw_owner_name or str(raw_owner_name).lower() == 'unknown' or str(raw_owner_name).lower() == 'none':
-                owner_name = "❌ Deleted/Unknown User"
+                owner_name = "Unknown User"
             else:
                 owner_name = raw_owner_name
             
             # HTML Safe ဖြစ်အောင်လုပ်ခြင်း
             safe_name = html.escape(str(owner_name))
-            safe_target = html.escape(str(r[0]))
-            safe_key = html.escape(str(r[1]))
-            unit_val = html.escape(str(r[2]))
-            duration = html.escape(str(r[3]))
-            reseller_id = html.escape(str(r[4]))
-            reseller_total_keys = r[5] # ၎င်း Reseller ထည့်ထားသမျှ key အရေအတွက် စုစုပေါင်း
             
-            # Layout ထဲတွင် "ထည့်ထားသော ID အရေအတွက်" ကို ထည့်သွင်းပြသခြင်း
-            line = (
-                f"<b>{index}. 🔑 Key:</b> <code>{safe_key}</code>\n"
-                f"┗ 👤 <b>Target ID:</b> <code>{safe_target}</code>\n"
-                f"┗ ⏳ <b>Duration:</b> {unit_val} {duration}\n"
-                f"┗ 👨‍💻 <b>Added By:</b> {safe_name} (<code>{reseller_id}</code>)\n"
-                f"┗ 📊 <b>Reseller Total Keys:</b> {reseller_total_keys} ခု\n"
-                f"┠────────────────────────┨\n"
-            )
-            
-            # Telegram Message limit 4000 ကျော်ရင် ခွဲပို့ရန်
-            if len(res) + len(line) > 4000:
-                bot.send_message(message.chat.id, res, parse_mode="HTML")
-                res = "" 
-            res += line
+            # ဇယားကွက် ပုံစံဖြင့် စာကြောင်းစီခြင်း
+            res += f"{index}.  <b>{safe_name}</b>\n"
+            res += f"    ┗ 🆔 <code>{reseller_id}</code>  ➡️  <b>{key_count} ခု</b>\n"
+            res += "────────────────────────\n"
 
-        if res:
-            bot.send_message(message.chat.id, res, parse_mode="HTML")
+        # အောက်ခြေတွင် စုစုပေါင်း အရေအတွက်ကိုပါ ပြပေးခြင်း
+        res += f"📊 <b>စုစုပေါင်း Key အားလုံး: {total_all_keys} ခု</b>\n"
+        res += "━━━━━━━━━━━━━━━━━━━━━━━━"
+
+        bot.send_message(message.chat.id, res, parse_mode="HTML")
 
     except Exception as e:
         bot.reply_to(message, f"❌ Error ဖြစ်သွားပါသည်: {str(e)}")
 
-
+        
+        
         
             
             
