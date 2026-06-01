@@ -454,10 +454,11 @@ def callback_delete_reseller(call):
 
 # 4. View All Keys
 @bot.message_handler(func=lambda msg: msg.text == "🌐 View All Keys" and is_admin(msg.from_user.id))
+@bot.message_handler(func=lambda msg: msg.text == "🌐 View All Keys" and is_admin(msg.from_user.id))
 def admin_view_all_keys(message):
     try:
         user_states[message.from_user.id] = None
-        pull_data_from_github() # ဒီနေရာမှာ Error တက်မတက် log ထုတ်ကြည့်ပါ
+        pull_data_from_github() # GitHub sync အဆင်ပြေမပြေ စစ်ရန်
         
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
@@ -473,19 +474,21 @@ def admin_view_all_keys(message):
         
         for r in rows:
             owner_name = get_user_name(r[4])
-            # Markdown Error မတက်အောင် escape လုပ်ပေးဖို့ လိုနိုင်ပါတယ်
-            line = f"🆔 `{r[0]}` | 🔑 `{r[1]}` | {r[2]} {r[3]} (By: `{r[4]}`)\n"
             
-            # Telegram စာသား limit ကျော်မသွားအောင် စစ်ထုတ်ပြီး ခွဲပို့ခြင်း
+            # Markdown Error မတက်အောင် owner_name ကို *အစား ' ' (single quote) သို့မဟုတ် ရိုးရိုးပဲ သုံးထားပါတယ်
+            line = f"🆔 `{r[0]}` | 🔑 `{r[1]}` | {r[2]} {r[3]} (By: '{owner_name}' - `{r[4]}`)\n"
+            
+            # စာသား length 4000 ကျော်ရင် တစ်စောင်စီ ခွဲပို့ပေးမယ့်အပိုင်း
             if len(res) + len(line) > 4000:
                 bot.send_message(message.chat.id, res, parse_mode="Markdown")
-                res = "" # စာသားအသစ်ပြန်စ
+                res = "" # နောက် message အတွက် စာသားအသစ်ပြန်စ
             res += line
 
         if res:
             bot.send_message(message.chat.id, res, parse_mode="Markdown")
 
     except Exception as e:
+        # ဘာကြောင့် Error တက်လဲဆိုတာ အောက်ကအတိုင်း Bot ထဲမှာ တိုက်ရိုက်ကြည့်လို့ရပါမယ်
         bot.reply_to(message, f"❌ Error ဖြစ်သွားပါသည်: {str(e)}")
 
 # 5. Add Key (🌟 Fix တာကွက် - bot.reply_to စာသားနေရာတွင် message ပိုဇစ်ရှင် ထည့်သွင်းပြင်ဆင်ပြီး)
