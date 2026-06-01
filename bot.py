@@ -3,6 +3,7 @@ import sqlite3
 import requests
 import base64
 import telebot
+import html  # Code ရဲ့ အပေါ်ဆုံးမှာ ရှိနေပါစေ
 from telebot import types
 import threading
 from flask import Flask
@@ -453,12 +454,13 @@ def callback_delete_reseller(call):
     except Exception as e: bot.answer_callback_query(call.id, f"❌ Error: {str(e)}")
 
 # 4. View All Keys
-@bot.message_handler(func=lambda msg: msg.text == "🌐 View All Keys" and is_admin(msg.from_user.id))
+
+
 @bot.message_handler(func=lambda msg: msg.text == "🌐 View All Keys" and is_admin(msg.from_user.id))
 def admin_view_all_keys(message):
     try:
         user_states[message.from_user.id] = None
-        pull_data_from_github() # GitHub sync အဆင်ပြေမပြေ စစ်ရန်
+        pull_data_from_github()
         
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
@@ -469,27 +471,49 @@ def admin_view_all_keys(message):
         if not rows:
             return bot.reply_to(message, "📭 Database ထဲတွင် Key မရှိသေးပါ။")
 
-        header = f"🌐 **Database အတွင်းရှိ Key အားလုံးစာရင်း ({len(rows)} ခု):**\n\n"
+        header = f"🌐 <b>DATABASE KEYS LIST ({len(rows)} ခု)</b>\n"
+        header += f"━ Paid/Free Key များကို အောက်တွင် စစ်ဆေးနိုင်သည် ━\n\n"
         res = header
         
-        for r in rows:
-            owner_name = get_user_name(r[4])
+        for index, r in enumerate(rows, 1):
+            # Owner Name စစ်ဆေးခြင်း (မရှိရင် သေချာပြပေးရန်)
+            raw_owner_name = get_user_name(r[4])
+            if not raw_owner_name or str(raw_owner_name).lower() == 'unknown' or str(raw_owner_name).lower() == 'none':
+                owner_name = "❌ Deleted/Unknown User"
+            else:
+                owner_name = raw_owner_name
             
-            # Markdown Error မတက်အောင် owner_name ကို *အစား ' ' (single quote) သို့မဟုတ် ရိုးရိုးပဲ သုံးထားပါတယ်
-            line = f"🆔 `{r[0]}` | 🔑 `{r[1]}` | {r[2]} {r[3]} (By: '{owner_name}' - `{r[4]}`)\n"
+            # HTML Safe ဖြစ်အောင်လုပ်ခြင်း
+            safe_name = html.escape(str(owner_name))
+            safe_target = html.escape(str(r[0]))
+            safe_key = html.escape(str(r[1]))
+            unit_val = html.escape(str(r[2]))
+            duration = html.escape(str(r[3]))
+            reseller_id = html.escape(str(r[4]))
             
-            # စာသား length 4000 ကျော်ရင် တစ်စောင်စီ ခွဲပို့ပေးမယ့်အပိုင်း
+            # ပိုမိုသပ်ရပ်လှပသော သတင်းအချက်အလက် Layout
+            line = (
+                f"<b>{index}. 🔑 Key:</b> <code>{safe_key}</code>\n"
+                f"┗ 👤 <b>Target ID:</b> <code>{safe_target}</code>\n"
+                f"┗ ⏳ <b>Duration:</b> {unit_val} {duration}\n"
+                f"┗ 👨‍💻 <b>Added By:</b> {safe_name} (<code>{reseller_id}</code>)\n"
+                f"┠────────────────────────┨\n"
+            )
+            
+            # Telegram Message limit 4000 ကျော်ရင် ခွဲပို့ရန်
             if len(res) + len(line) > 4000:
-                bot.send_message(message.chat.id, res, parse_mode="Markdown")
-                res = "" # နောက် message အတွက် စာသားအသစ်ပြန်စ
+                bot.send_message(message.chat.id, res, parse_mode="HTML")
+                res = "" 
             res += line
 
         if res:
-            bot.send_message(message.chat.id, res, parse_mode="Markdown")
+            bot.send_message(message.chat.id, res, parse_mode="HTML")
 
     except Exception as e:
-        # ဘာကြောင့် Error တက်လဲဆိုတာ အောက်ကအတိုင်း Bot ထဲမှာ တိုက်ရိုက်ကြည့်လို့ရပါမယ်
         bot.reply_to(message, f"❌ Error ဖြစ်သွားပါသည်: {str(e)}")
+        
+        
+    
 
 # 5. Add Key (🌟 Fix တာကွက် - bot.reply_to စာသားနေရာတွင် message ပိုဇစ်ရှင် ထည့်သွင်းပြင်ဆင်ပြီး)
 @bot.message_handler(func=lambda msg: msg.text == "➕ Add Key" and is_reseller(msg.from_user.id))
