@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-# System dependencies တွေ (OpenCV နဲ့ ddddocr လိုအပ်တဲ့ C++ libraries များ) ထည့်သွင်းခြင်း
+# System dependencies များ ထည့်သွင်းခြင်း
 RUN apt-get update && apt-get install -y \
     libgl1 \
     libglib2.0-0 \
@@ -8,6 +8,9 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+# Pip ကို အရင် Upgrade လုပ်ပါ
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
