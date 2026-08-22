@@ -1482,5 +1482,22 @@ async def main():
             except Exception:
                 pass
 
+
+
+PORT = int(os.getenv("PORT", 10000))
+
+async def handle(request):
+    return web.Response(text="Bot is running!")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", handle)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
+    print(f"Web server started on port {PORT}")
+
 if __name__ == '__main__':
+    await start_web_server()
     asyncio.run(main())
