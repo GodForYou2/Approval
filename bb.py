@@ -7,12 +7,12 @@ import ddddocr
 import numpy as np
 from datetime import datetime, timedelta, timezone
 
-API_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 REPO_OWNER = "GodForYou2"
 REPO_NAME = "auth2"
 SUCCESS_CODE = asyncio.Queue()
-bot = AsyncTeleBot(API_TOKEN)
+bot = AsyncTeleBot(BOT_TOKEN)
 user_data = {}
 approve = {}
 scan_tasks = {}
