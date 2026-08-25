@@ -7,7 +7,12 @@ import ddddocr
 import numpy as np
 from datetime import datetime, timedelta, timezone
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+API_TOKEN = os.getenv("BOT_TOKEN")
+
+if not API_TOKEN:
+    print("ERROR: BOT_TOKEN ကို ဖတ်မမိပါ။ Render Environment ကို ပြန်စစ်ပါ။")
+
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 REPO_OWNER = "GodForYou2"
 REPO_NAME = "auth2"
