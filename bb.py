@@ -1484,10 +1484,13 @@ async def main():
 
 
 
-PORT = int(os.getenv("PORT", 10000))
+
+PORT = int(os.environ.get("PORT", 8080))
+
 
 async def handle(request):
-    return web.Response(text="Bot is running!")
+    return web.Response(text="Bot is live!")
+
 
 async def start_web_server():
     app = web.Application()
@@ -1498,6 +1501,18 @@ async def start_web_server():
     await site.start()
     print(f"Web server started on port {PORT}")
 
-if __name__ == '__main__':
+
+async def main():
+    # 1. Web server ကို main() ရဲ့ အစမှာ await ခေါ်ပေးပါ
     await start_web_server()
+
+    # 2. မိမိ Bot ရဲ့ Main Process Code များကို ဒီအောက်မှာ ဆက်ရေးပါ
+    # ဥပမာ - await application.initialize() / await application.start()
+
+    # Process ပိတ်မသွားဘဲ Render ပေါ်မှာ အမြဲ Run နေစေရန်
+    await asyncio.Event().wait()
+
+
+if __name__ == "__main__":
+    # if အောက်တွင် asyncio.run(main()) တစ်ကြောင်းတည်းသာ ရှိရပါမည်
     asyncio.run(main())
