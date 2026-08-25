@@ -1490,11 +1490,20 @@ async def main():
 
 
 
+import asyncio
+import os
+from aiohttp import web
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+
+# Environment Variables
 PORT = int(os.environ.get("PORT", 8080))
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 
+# Web Server Handler (Render Live ဖြစ်နေစေရန်)
 async def handle(request):
-    return web.Response(text="Bot is live!")
+    return web.Response(text="Bot is running fine!")
 
 
 async def start_web_server():
@@ -1504,20 +1513,39 @@ async def start_web_server():
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
-    print(f"Web server started on port {PORT}")
+    print(f" Web Server started on port {PORT}")
+
+
+# Bot Command Sample
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Hello! Bot is online and working!")
 
 
 async def main():
-    # 1. Web server ကို main() ရဲ့ အစမှာ await ခေါ်ပေးပါ
+    # ၁။ Web Server ကို အရင် စတင်ပါ
     await start_web_server()
 
-    # 2. မိမိ Bot ရဲ့ Main Process Code များကို ဒီအောက်မှာ ဆက်ရေးပါ
-    # ဥပမာ - await application.initialize() / await application.start()
+    # ၂။ Telegram Bot Application ဆောက်ပါ
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Process ပိတ်မသွားဘဲ Render ပေါ်မှာ အမြဲ Run နေစေရန်
+    # မိမိ Handlers များကို ဒီမှာ ထည့်ပါ
+    application.add_handler(CommandHandler("start", start_command))
+
+    # ၃။ Async Mode ဖြင့် Bot ကို Start ပါ (run_polling မသုံးရပါ)
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
+
+    print(" Telegram Bot is active and listening for messages...")
+
+    # Bot မရပ်သွားဘဲ အမြဲ Run နေစေရန် ထိန်းထားခြင်း
     await asyncio.Event().wait()
 
 
 if __name__ == "__main__":
-    # if အောက်တွင် asyncio.run(main()) တစ်ကြောင်းတည်းသာ ရှိရပါမည်
     asyncio.run(main())
+    
+
+
+
+
